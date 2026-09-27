@@ -1,5 +1,5 @@
-// Command dream_router7_dns_manager creates, updates or deletes local DNS A
-// records on a UniFi gateway.
+// Command dream_router7_dns_manager creates, updates, deletes or lists local
+// DNS A records on a UniFi gateway.
 //
 // Usage:
 //
@@ -7,11 +7,15 @@
 //	dream_router7_dns_manager --delete [USER [PASSWORD]] HOSTNAME
 //	dream_router7_dns_manager --csv FILE [USER [PASSWORD]]
 //	dream_router7_dns_manager --delete --csv FILE [USER [PASSWORD]]
+//	dream_router7_dns_manager --list [USER [PASSWORD]]
 //
 // --csv FILE adds or updates every "hostname,ip" line in FILE with a single login.
 // With --delete it deletes every hostname in FILE instead; the IP column is then
 // optional, and when present the record is only deleted if it still has that IP.
 // --dry-run shows what would change without changing anything.
+// --list prints every record on the router. A records are printed as "hostname,ip"
+// lines, so the output can be saved and fed back to --csv; other record types and
+// disabled records are printed as "#" comment lines, which --csv ignores.
 //
 // If USER is omitted it is read from the UNIFI_USER env var, defaulting to "admin".
 // If PASSWORD is omitted it is read from the UNIFI_PASS env var, otherwise prompted.
@@ -33,6 +37,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -127,7 +132,8 @@ var prog = filepath.Base(os.Args[0])
 func usage() string {
 	return fmt.Sprintf("usage: %[1]s [-h] [--host HOST] [--site SITE] [--dry-run] [USER [PASSWORD]] HOSTNAME IP\n"+
 		"       %[1]s [-h] [--host HOST] [--site SITE] [--dry-run] --delete [USER [PASSWORD]] HOSTNAME\n"+
-		"       %[1]s [-h] [--host HOST] [--site SITE] [--dry-run] [--delete] --csv FILE [USER [PASSWORD]]\n", prog)
+		"       %[1]s [-h] [--host HOST] [--site SITE] [--dry-run] [--delete] --csv FILE [USER [PASSWORD]]\n"+
+		"       %[1]s [-h] [--host HOST] [--site SITE] --list [USER [PASSWORD]]\n", prog)
 }
 
 func usageError(msg string) {
@@ -139,7 +145,7 @@ func usageError(msg string) {
 type options struct {
 	host, site, csv string
 	delete, dryRun  bool
-	haveCSV         bool
+	haveCSV, list   bool
 	positional      []string
 }
 
@@ -166,6 +172,7 @@ options:
   --csv FILE   add or update every "hostname,ip" line in FILE with a single login
                (with --delete: delete every hostname in FILE)
   --dry-run    show what would change without changing anything
+  --list       print every record on the router ("hostname,ip" for A records)
   --host HOST  router address (default 192.168.1.1)
   --site SITE  UniFi Network site name (default "default")
 `)
@@ -174,6 +181,8 @@ options:
 			o.delete = true
 		case "--dry-run":
 			o.dryRun = true
+		case "--list":
+			o.list = true
 		case "--host", "--site", "--csv":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -354,13 +363,48 @@ func deleteRecord(api *unifi, records []record, name, expectedIP string, dryRun,
 	return "deleted"
 }
 
+// listRecords prints records as --csv compatible lines, sorted by hostname, with a summary on stderr.
+func listRecords(records []record) {
+	sorted := append([]record(nil), records...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ki, kj := fmt.Sprint(sorted[i]["key"]), fmt.Sprint(sorted[j]["key"])
+		if ki != kj {
+			return ki < kj
+		}
+		return fmt.Sprint(sorted[i]["record_type"]) < fmt.Sprint(sorted[j]["record_type"])
+	})
+	var active, disabled, other int
+	for _, r := range sorted {
+		enabled, ok := r["enabled"].(bool)
+		switch {
+		case r["record_type"] != "A":
+			fmt.Printf("# %v %v -> %v\n", r["record_type"], r["key"], r["value"])
+			other++
+		case ok && !enabled:
+			fmt.Printf("# disabled A %v,%v\n", r["key"], r["value"])
+			disabled++
+		default:
+			fmt.Printf("%v,%v\n", r["key"], r["value"])
+			active++
+		}
+	}
+	fmt.Fprintf(os.Stderr, "%d records (%d A, %d disabled A, %d other types)\n", len(records), active, disabled, other)
+}
+
 func main() {
 	o := parseArgs(os.Args[1:])
 
 	positional := o.positional
 	var batch []entry
 	var name, ip string
-	if o.haveCSV {
+	if o.list {
+		if o.delete || o.haveCSV {
+			usageError("--list cannot be combined with --delete or --csv")
+		}
+		if len(positional) > 2 {
+			usageError("expected --list [USER [PASSWORD]]")
+		}
+	} else if o.haveCSV {
 		if len(positional) > 2 {
 			if o.delete {
 				usageError("expected --delete --csv FILE [USER [PASSWORD]]")
@@ -402,6 +446,11 @@ func main() {
 	api := newUniFi(o.host, o.site)
 	api.login(user, password)
 	records := api.listRecords()
+
+	if o.list {
+		listRecords(records)
+		return
+	}
 
 	if o.haveCSV && o.delete {
 		counts := map[string]int{}

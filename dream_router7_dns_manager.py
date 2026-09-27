@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Create, update or delete local DNS A records on a UniFi gateway.
+"""Create, update, delete or list local DNS A records on a UniFi gateway.
 
 Usage:
   ./dream_router7_dns_manager.py [USER [PASSWORD]] HOSTNAME IP [--host 192.168.1.1] [--site default]
   ./dream_router7_dns_manager.py --delete [USER [PASSWORD]] HOSTNAME
   ./dream_router7_dns_manager.py --csv FILE [USER [PASSWORD]]
   ./dream_router7_dns_manager.py --delete --csv FILE [USER [PASSWORD]]
+  ./dream_router7_dns_manager.py --list [USER [PASSWORD]]
 
 --csv FILE adds or updates every "hostname,ip" line in FILE with a single login.
 With --delete it deletes every hostname in FILE instead; the IP column is then
 optional, and when present the record is only deleted if it still has that IP.
 --dry-run shows what would change without changing anything.
+--list prints every record on the router. A records are printed as "hostname,ip"
+lines, so the output can be saved and fed back to --csv; other record types and
+disabled records are printed as "#" comment lines, which --csv ignores.
 
 If USER is omitted it is read from the UNIFI_USER env var, defaulting to "admin".
 If PASSWORD is omitted it is read from the UNIFI_PASS env var, otherwise prompted.
@@ -163,22 +167,46 @@ def delete(api, records, name, expected_ip, dry_run, missing_ok):
     return "deleted"
 
 
+def list_records(records):
+    """Print records as --csv compatible lines, sorted by hostname; summary to stderr."""
+    active = disabled = other = 0
+    for r in sorted(records, key=lambda r: (str(r.get("key", "")), str(r.get("record_type", "")))):
+        rtype, key, value = r.get("record_type"), r.get("key"), r.get("value")
+        if rtype != "A":
+            print(f"# {rtype} {key} -> {value}")
+            other += 1
+        elif not r.get("enabled", True):
+            print(f"# disabled A {key},{value}")
+            disabled += 1
+        else:
+            print(f"{key},{value}")
+            active += 1
+    print(f"{len(records)} records ({active} A, {disabled} disabled A, {other} other types)", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                  usage="%(prog)s [-h] [--host HOST] [--site SITE] [--dry-run] [USER [PASSWORD]] HOSTNAME IP\n"
                                        "       %(prog)s [-h] [--host HOST] [--site SITE] [--dry-run] --delete [USER [PASSWORD]] HOSTNAME\n"
-                                       "       %(prog)s [-h] [--host HOST] [--site SITE] [--dry-run] [--delete] --csv FILE [USER [PASSWORD]]")
+                                       "       %(prog)s [-h] [--host HOST] [--site SITE] [--dry-run] [--delete] --csv FILE [USER [PASSWORD]]\n"
+                                       "       %(prog)s [-h] [--host HOST] [--site SITE] --list [USER [PASSWORD]]")
     ap.add_argument("args", nargs="*", metavar="[USER [PASSWORD]] HOSTNAME [IP]")
     ap.add_argument("--delete", action="store_true", help="delete the A record for HOSTNAME instead of creating it")
     ap.add_argument("--csv", metavar="FILE", help='add or update every "hostname,ip" line in FILE with a single login '
                                                  '(with --delete: delete every hostname in FILE)')
     ap.add_argument("--dry-run", action="store_true", help="show what would change without changing anything")
+    ap.add_argument("--list", action="store_true", help='print every record on the router ("hostname,ip" for A records)')
     ap.add_argument("--host", default="192.168.1.1")
     ap.add_argument("--site", default="default")
     args = ap.parse_args()
 
     positional = list(args.args)
-    if args.csv is not None:
+    if args.list:
+        if args.delete or args.csv is not None:
+            ap.error("--list cannot be combined with --delete or --csv")
+        if len(positional) > 2:
+            ap.error("expected --list [USER [PASSWORD]]")
+    elif args.csv is not None:
         if len(positional) > 2:
             ap.error(f"expected {'--delete ' if args.delete else ''}--csv FILE [USER [PASSWORD]]")
         batch = read_csv(args.csv, ip_optional=args.delete)
@@ -199,6 +227,10 @@ def main():
     api = UniFi(args.host, args.site)
     api.login(user, password)
     records = api.list_records()
+
+    if args.list:
+        list_records(records)
+        return
 
     if args.csv is not None and args.delete:
         counts = {"deleted": 0, "not found": 0, "skipped": 0}

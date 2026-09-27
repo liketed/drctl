@@ -5,9 +5,9 @@ for a surprise on the Dream Router. On the edgerouter you could add a ssh public
 key, login passwordless, and add and remove dns entries easily, very easily scripted.
 
 
-`dream_router7_dns_manager` creates, updates and deletes local DNS **A records** on a
-UniFi Dream Router 7 (or other UniFi OS gateway) from the command line, one at a time or
-in bulk from a CSV file.
+`dream_router7_dns_manager` creates, updates, deletes and lists local DNS **A records**
+on a UniFi Dream Router 7 (or other UniFi OS gateway) from the command line, one at a
+time or in bulk from a CSV file.
 
 Records are created through the UniFi Network application's own API, so they are
 exactly the same as records added under **Settings → Routing → DNS** in the web UI:
@@ -48,6 +48,7 @@ e.g. `GOOS=linux GOARCH=arm64 go build -o dream_router7_dns_manager .`.
 ./dream_router7_dns_manager.py --delete [USER [PASSWORD]] HOSTNAME
 ./dream_router7_dns_manager.py --csv FILE [USER [PASSWORD]]
 ./dream_router7_dns_manager.py --delete --csv FILE [USER [PASSWORD]]
+./dream_router7_dns_manager.py --list [USER [PASSWORD]]
 ```
 
 | Option | Default | Meaning |
@@ -57,6 +58,7 @@ e.g. `GOOS=linux GOARCH=arm64 go build -o dream_router7_dns_manager .`.
 | `--delete` | off | Delete instead of create/update |
 | `--csv FILE` | — | Process every line of `FILE` with a single login |
 | `--dry-run` | off | Show what would change without changing anything |
+| `--list` | off | Print every record on the router (`hostname,ip` for A records) |
 | `--host` | `192.168.1.1` | Router address |
 | `--site` | `default` | UniFi Network site name |
 
@@ -109,6 +111,45 @@ Re-running with the IP it already has changes nothing:
 ./dream_router7_dns_manager.py --delete nas.home.internal
 # no A record found for nas.home.internal      (exit status 1)
 ```
+
+### List all records
+
+```bash
+./dream_router7_dns_manager.py --list
+# media.home.internal,192.168.1.70
+# nas.home.internal,192.168.1.51
+# printer.home.internal,192.168.1.60
+# 3 records (3 A, 0 disabled A, 0 other types)
+```
+
+A records are printed as `hostname,ip`, sorted by hostname. Records that were disabled
+in the web UI, and other record types created there (CNAME, TXT, …), are printed as
+comment lines:
+
+```
+# disabled A camera.home.internal,192.168.1.71
+# CNAME files.home.internal -> nas.home.internal
+```
+
+The summary line goes to stderr, so it stays out of redirected output. `--list` cannot be
+combined with `--delete` or `--csv`.
+
+### Back up and restore records
+
+Because `--list` prints A records in the same `hostname,ip` format that `--csv` reads,
+and `--csv` ignores the `#` lines, its output doubles as a backup:
+
+```bash
+./dream_router7_dns_manager.py --list > dns-backup.csv
+
+# later, e.g. after a reset, or on another router:
+./dream_router7_dns_manager.py --csv dns-backup.csv --dry-run
+./dream_router7_dns_manager.py --csv dns-backup.csv
+```
+
+Only enabled A records are restored this way; disabled records and other record types
+are listed for reference but have to be recreated in the web UI. Taking a backup before
+a bulk `--csv` or `--delete --csv` run is a cheap safety net.
 
 ### Preview a change first
 
