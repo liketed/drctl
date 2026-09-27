@@ -200,31 +200,107 @@ commands. Set `UNIFI_PASS` first (see above) so you are not prompted for every l
 ```bash
 while IFS=, read -r host ip; do
   ./dream_router7_dns_manager.py "$host" "${ip// /}"
-  sleep 20    # stay under the router's login rate limit
+  sleep 20    # stay under the router's default login rate limit
 done < records.csv
 ```
 
-Unlike `--csv`, this logs in **once per record**, so it runs into the router's login
-rate limit (see below) unless you pause between calls. The `sleep 20` keeps it safely
-under the limit, but it makes the loop slow (about 15 minutes for 45 records). For more
-than a few records, `--csv` is faster and checks the whole file before changing anything.
+Unlike `--csv`, this logs in **once per record**, so with the router's default settings
+it runs into the login rate limit (see below) unless you pause between calls. The
+`sleep 20` keeps it safely under the default limit, but it makes the loop slow (about
+15 minutes for 45 records). If you have raised the limit on your router, you can shorten
+or drop the `sleep`. For more than a few records, `--csv` is faster and checks the whole
+file before changing anything.
 
 ### Login rate limiting
 
-The router limits how often you can log in. In testing, about six logins within a
-minute was enough to trigger it, and the next login failed with:
+By default the router allows **5 successful logins per minute**. Each run of the tool
+logs in once, so the sixth run within a minute fails with:
 
 ```
 POST https://192.168.1.1/api/auth/login failed: HTTP 429 {"message":"You've reached the login attempt limit","code":"AUTHENTICATION_FAILED_LIMIT_REACHED","level":"debug"}
 ```
 
 The tool exits with status `1` and nothing is changed. Waiting a minute or two clears
-it; logins spaced about 20 seconds apart never hit the limit. To avoid it:
+it; logins spaced about 20 seconds apart never hit the default limit. To avoid it:
 
 - Use `--csv` for bulk changes: one login for the whole file, however many lines.
 - In shell loops or scripts that call the tool repeatedly, pause between calls.
 - Check the password with a single command before starting a long run. A wrong
-  password on every call would burn through the limit quickly.
+  password on every call would waste the whole run.
+
+#### Where the limit is set
+
+The limit is enforced by **ulp-go**, UniFi OS's local user and identity service
+(`/usr/sbin/ulp-go-app`, run as `ulp-go.service`), not by the Network application or
+nginx. A login travels like this:
+
+1. The tool posts to `https://<router>/api/auth/login`, which is handled by
+   **unifi-core**, the UniFi OS web service.
+2. unifi-core forwards the credentials to ulp-go on `127.0.0.1` (`/api/v2/login_v2`).
+3. ulp-go applies its rate limits. Over the limit, it returns error code `-19`.
+4. unifi-core turns `-19` into the HTTP 429 `AUTHENTICATION_FAILED_LIMIT_REACHED`
+   response above (the mapping lives in `/usr/share/unifi-core/app/service.js`).
+
+The settings are in `/usr/lib/ulp-go/config.props`:
+
+```properties
+# http rate limit (Limit 20 requests per second)
+http.limit.second = 1
+http.limit.count = 20
+# success login rate limit (limit 5 request pre minute)
+success.login.limit.count = 5
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `success.login.limit.count` | `5` | Successful logins allowed per minute. This is the one the tool runs into. |
+| `http.limit.count` / `http.limit.second` | `20` / `1` | General limit of 20 requests per second to ulp-go's API. The tool never comes close. |
+
+It isn't clear from the config whether the login limit is counted per user or per
+client address, and failed logins don't appear to be controlled by this setting.
+
+#### Changing the limit
+
+This is an unsupported change to a file on the firmware image, so read the caveats
+below first. Over SSH as root:
+
+```bash
+ssh root@192.168.1.1
+F=/usr/lib/ulp-go/config.props
+cp -p $F $F.bak                                              # back up first
+sed -i 's/^success\.login\.limit\.count = .*/success.login.limit.count = 60/' $F
+grep -n '^success.login.limit.count' $F                      # check the edit
+systemctl restart ulp-go
+systemctl is-active ulp-go unifi-core                        # both should say "active"
+journalctl -u ulp-go -n 20 --no-pager                        # check it started cleanly
+```
+
+Use a **restart**, not `systemctl reload ulp-go`. The reload script
+(`/usr/lib/ulp-go/scripts/service/reload.sh`) only posts to an internal ulp-go endpoint
+and always reports success, and there is no sign that it re-reads `config.props`. The
+file is read when the service starts.
+
+To check the new limit, run more logins within a minute than the old limit allowed,
+e.g. seven harmless no-op runs:
+
+```bash
+for i in 1 2 3 4 5 6 7; do ./dream_router7_dns_manager.py nas.home.internal 192.168.1.50; done
+```
+
+Caveats:
+
+- **Logins stop for a few seconds during the restart**: the web UI, the mobile app and
+  this tool. Routing, DNS and Wi-Fi are not affected. unifi-core depends on ulp-go, so
+  the web UI may briefly disconnect.
+- **A UniFi OS firmware update resets the file**, and the limit goes back to 5. Re-check
+  it after updates with `grep success.login /usr/lib/ulp-go/config.props`. `--csv`
+  works regardless of the limit, so prefer it for bulk changes.
+- ulp-go handles every login to the router. If it fails to start after an edit, restore
+  the backup and restart:
+
+  ```bash
+  cp -p /usr/lib/ulp-go/config.props.bak /usr/lib/ulp-go/config.props && systemctl restart ulp-go
+  ```
 
 ### Check a record
 
@@ -239,6 +315,11 @@ nslookup nas.home.internal 192.168.1.1
   `nas.home.internal` are treated as different records. Stick to lowercase.
 - Each command logs in once, and the router rate-limits logins. See
   [Login rate limiting](#login-rate-limiting).
+- **If you raised the login limit, a UniFi OS firmware update will quietly undo it.**
+  `/usr/lib/ulp-go/config.props` is part of the firmware image, so every update puts
+  `success.login.limit.count` back to `5`. After each update, check it with
+  `ssh root@192.168.1.1 grep success.login /usr/lib/ulp-go/config.props` and repeat
+  [Changing the limit](#changing-the-limit) if needed.
 - The router uses a self-signed HTTPS certificate, so the tool does not verify it.
   Only point `--host` at a router on a network you trust.
 - The tool uses the Network application's internal (undocumented) API, the same one
