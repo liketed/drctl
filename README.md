@@ -74,7 +74,7 @@ Exit status: `0` success, `1` error (bad input, conflict, not found, login failu
 ## Commands
 
 ```
-drctl dns  list   [--type T] [--name N] [--format table|csv|json]
+drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
 drctl dns  add    NAME VALUE [--type A] [--ttl N] [--priority N] [--weight N] [--port N] [--disabled] [--append]
 drctl dns  delete NAME [--type T] [--value V] [--all]
 drctl dns  import FILE [--delete]
@@ -150,12 +150,26 @@ drctl dns add rr.home.internal 192.168.1.11 --append
 
 ```bash
 drctl dns list
-# TYPE  NAME                     VALUE                DETAILS
+# TYPE  NAME                     VALUE              DETAILS
 # A     nas.home.internal        192.168.1.51
-# SRV   _sip._tcp.home.internal  pbx.home.internal    priority=10 weight=5 port=5060
+# A     printer.home.internal    192.168.1.60       host (aa:bb:cc:dd:ee:02, printer)
+# SRV   _sip._tcp.home.internal  pbx.home.internal  priority=10 weight=5 port=5060
 
 drctl dns list --type MX --format json
 ```
+
+`dns list` shows every name the router answers for: static records, and devices' DNS
+names set with [`drctl host`](#hosts-reservation-and-dns-name-together), which are marked
+`host` with the device's MAC and name (and have `"source": "host"` in JSON output).
+`--static` shows only static records.
+
+The CSV output (`--format csv`) lists static records only, because it is meant for
+`drctl dns import`; importing a device's name as a static record would clash with the
+device. A note on stderr says how many device names were left out; back those up with
+`drctl host list --format csv`.
+
+`dns delete` only deletes static records. For a device's name it tells you to use
+`drctl host delete` instead.
 
 ### Import and bulk delete
 
@@ -280,8 +294,8 @@ A host name can't also be a static DNS record (or another device's name); drctl 
 this and says which record is in the way. A new device is labelled with its host name
 in the web UI unless `--device-name` is given.
 
-Host names are served like A records but don't appear in `drctl dns list`; use
-`drctl host list` (or `drctl dhcp list`, which shows them in the DNS NAME column).
+Host names are served like A records. They appear in `drctl dns list` marked `host`,
+in `drctl host list`, and in the DNS NAME column of `drctl dhcp list`.
 
 ## Backup and restore
 
@@ -297,7 +311,8 @@ drctl dhcp import dhcp-backup.csv
 ```
 
 Taking a backup before a bulk import or delete is a cheap safety net. Host names are
-not part of these backups; re-create them with `drctl host add`.
+not part of these backups (`dns list --format csv` leaves them out). Save them with
+`drctl host list --format csv > hosts.csv` and re-create them with `drctl host add`.
 
 ## Loop over a file in the shell
 

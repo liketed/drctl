@@ -369,3 +369,48 @@ func TestUsageAndPassword(t *testing.T) {
 		t.Fatalf("exit %d, %q", code, errOut.String())
 	}
 }
+
+func TestDNSListShowsHostNames(t *testing.T) {
+	r := fakerouter.New()
+	defer r.Close()
+	r.PutDNS(fakerouter.DNSRecord{RecordType: "A", Key: "nas.home.internal", Value: "192.168.1.50", Enabled: true})
+	drctl(t, r, "host", "add", "wtrpro0.test.com", "192.168.1.124", "--mac", "c8:ff:bf:05:d7:58").ok(t)
+
+	table := drctl(t, r, "dns", "list").ok(t).stdout
+	lines := strings.Split(strings.TrimSpace(table), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[1], "nas.home.internal") ||
+		!strings.Contains(lines[2], "wtrpro0.test.com") || !strings.Contains(lines[2], "192.168.1.124") ||
+		!strings.Contains(lines[2], "host (c8:ff:bf:05:d7:58, wtrpro0.test.com)") {
+		t.Fatalf("table:\n%s", table)
+	}
+
+	var objs []map[string]string
+	if err := json.Unmarshal([]byte(drctl(t, r, "dns", "list", "--format", "json").ok(t).stdout), &objs); err != nil {
+		t.Fatal(err)
+	}
+	if len(objs) != 2 || objs[0]["source"] != "static" || objs[1]["source"] != "host" || objs[1]["mac"] != "c8:ff:bf:05:d7:58" {
+		t.Fatalf("json: %v", objs)
+	}
+
+	res := drctl(t, r, "dns", "list", "--format", "csv").ok(t)
+	if strings.Contains(res.stdout, "wtrpro0") || !strings.Contains(res.stdout, "nas.home.internal") {
+		t.Fatalf("csv should list static records only:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "1 device DNS name(s) not included in the CSV") {
+		t.Fatalf("missing csv note: %q", res.stderr)
+	}
+	drctl(t, r, "dns", "import", writeTemp(t, res.stdout)).ok(t).says(t, "created 0, updated 0, unchanged 1")
+
+	if out := drctl(t, r, "dns", "list", "--static").ok(t).stdout; strings.Contains(out, "wtrpro0") {
+		t.Fatalf("--static shows host names:\n%s", out)
+	}
+	if out := drctl(t, r, "dns", "list", "--type", "AAAA").ok(t).stdout; strings.Contains(out, "wtrpro0") {
+		t.Fatalf("--type AAAA shows an A host name:\n%s", out)
+	}
+	drctl(t, r, "dns", "list", "--name", "wtrpro0.test.com").ok(t).says(t, "wtrpro0.test.com")
+
+	drctl(t, r, "dns", "delete", "wtrpro0.test.com").fails(t, 1, `wtrpro0.test.com is the DNS name of device wtrpro0.test.com (c8:ff:bf:05:d7:58, 192.168.1.124), not a static record; remove it with "drctl host delete wtrpro0.test.com"`)
+	if c, _ := r.Client("c8:ff:bf:05:d7:58"); !c.LocalDNSRecordEnabled {
+		t.Fatal("dns delete touched the host")
+	}
+}

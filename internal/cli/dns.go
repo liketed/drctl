@@ -59,11 +59,21 @@ func sameSettings(a, b unifi.DNSRecord) bool {
 	return a == b
 }
 
+// dnsEntry is one line of "dns list": a static record, or a device's DNS
+// name (set with "drctl host"), which the router serves like an A record.
+type dnsEntry struct {
+	rec    unifi.DNSRecord
+	host   bool
+	mac    string
+	device string
+}
+
 func dnsList(ctx context.Context, c *command) error {
-	fs := c.flags("[--type T] [--name N] [--format table|csv|json]")
+	fs := c.flags("[--type T] [--name N] [--static] [--format table|csv|json]")
 	typ := fs.String("type", "", "only records of this type")
 	name := fs.String("name", "", "only records with exactly this name")
-	format := fs.String("format", "table", "output format: table, csv or json")
+	static := fs.Bool("static", false, "only static records, not devices' DNS names (drctl host)")
+	format := fs.String("format", "table", "output format: table, csv or json (csv lists static records only, for import)")
 	if _, err := c.parse(0, 0); err != nil {
 		return err
 	}
@@ -82,32 +92,98 @@ func dnsList(ctx context.Context, c *command) error {
 	if err != nil {
 		return err
 	}
-	sortDNS(records)
-	var rows [][]string
+	var entries []dnsEntry
 	for _, r := range records {
-		if (*typ == "" || r.RecordType == *typ) && (*name == "" || r.Key == check.NormalizeName(*name)) {
-			rows = append(rows, dnsRow(r))
+		entries = append(entries, dnsEntry{rec: r})
+	}
+	// Device DNS names aren't static records, so the CSV (which is meant to be
+	// re-imported with "dns import") leaves them out.
+	var hostsOmitted int
+	if !*static {
+		clients, err := api.ListClients(ctx)
+		if err != nil {
+			return err
+		}
+		for _, d := range clients {
+			if !(d.UseFixedIP && d.LocalDNSRecordEnabled && d.LocalDNSRecord != "") {
+				continue
+			}
+			if *format == "csv" {
+				hostsOmitted++
+				continue
+			}
+			entries = append(entries, dnsEntry{
+				rec:  unifi.DNSRecord{RecordType: "A", Key: d.LocalDNSRecord, Value: d.FixedIP, Enabled: true},
+				host: true, mac: d.MAC, device: d.DisplayName(),
+			})
 		}
 	}
-	if *format == "table" {
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i].rec, entries[j].rec
+		if a.Key != b.Key {
+			return a.Key < b.Key
+		}
+		if a.RecordType != b.RecordType {
+			return a.RecordType < b.RecordType
+		}
+		return a.Value < b.Value
+	})
+	var shown []dnsEntry
+	for _, e := range entries {
+		if (*typ == "" || e.rec.RecordType == *typ) && (*name == "" || e.rec.Key == check.NormalizeName(*name)) {
+			shown = append(shown, e)
+		}
+	}
+	switch *format {
+	case "table":
 		// A compact table: numeric fields only where set.
-		header := []string{"type", "name", "value", "details"}
 		var table [][]string
-		for _, row := range rows {
+		for _, e := range shown {
 			var details []string
-			for i, f := range []string{"ttl", "priority", "weight", "port"} {
-				if row[3+i] != "0" {
-					details = append(details, f+"="+row[3+i])
+			if e.host {
+				label := e.mac
+				if e.device != "" {
+					label += ", " + e.device
+				}
+				details = append(details, "host ("+label+")")
+			}
+			for _, f := range []struct {
+				name string
+				v    int64
+			}{{"ttl", e.rec.TTL}, {"priority", e.rec.Priority}, {"weight", e.rec.Weight}, {"port", e.rec.Port}} {
+				if f.v != 0 {
+					details = append(details, fmt.Sprintf("%s=%d", f.name, f.v))
 				}
 			}
-			if row[7] == "false" {
+			if !e.rec.Enabled {
 				details = append(details, "disabled")
 			}
-			table = append(table, []string{row[0], row[1], row[2], strings.Join(details, " ")})
+			table = append(table, []string{e.rec.RecordType, e.rec.Key, e.rec.Value, strings.Join(details, " ")})
 		}
-		return output(c.env.Stdout, "table", header, table)
+		return output(c.env.Stdout, "table", []string{"type", "name", "value", "details"}, table)
+	case "json":
+		header := append(append([]string{}, dnsCSVHeader...), "source", "mac")
+		var rows [][]string
+		for _, e := range shown {
+			source := "static"
+			if e.host {
+				source = "host"
+			}
+			rows = append(rows, append(dnsRow(e.rec), source, e.mac))
+		}
+		return output(c.env.Stdout, "json", header, rows)
 	}
-	return output(c.env.Stdout, *format, dnsCSVHeader, rows)
+	var rows [][]string
+	for _, e := range shown {
+		rows = append(rows, dnsRow(e.rec))
+	}
+	if err := output(c.env.Stdout, *format, dnsCSVHeader, rows); err != nil {
+		return err
+	}
+	if hostsOmitted > 0 {
+		fmt.Fprintf(c.env.Stderr, "drctl: note: %d device DNS name(s) not included in the CSV; back them up with \"drctl host list --format csv\"\n", hostsOmitted)
+	}
+	return nil
 }
 
 // dnsFlags are the record settings shared by "dns add".
@@ -258,6 +334,22 @@ func dnsDelete(ctx context.Context, c *command) error {
 	sortDNS(matches)
 	switch {
 	case len(matches) == 0:
+		if *typ == "" || *typ == "A" {
+			clients, err := api.ListClients(ctx)
+			if err != nil {
+				return err
+			}
+			for _, d := range clients {
+				if d.UseFixedIP && d.LocalDNSRecordEnabled && strings.EqualFold(d.LocalDNSRecord, name) {
+					device := d.MAC + ", " + d.FixedIP
+					if n := d.DisplayName(); n != "" {
+						device = n + " (" + device + ")"
+					}
+					return fmt.Errorf("%s is the DNS name of device %s, not a static record; "+
+						"remove it with \"drctl host delete %s\"", name, device, d.LocalDNSRecord)
+				}
+			}
+		}
 		return fmt.Errorf("no record found for %s", describeFilter(name, *typ, *value))
 	case len(matches) > 1 && !*all:
 		var list []string

@@ -64,7 +64,7 @@ func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(fo
 const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records and DHCP reservations.
 
 Usage:
-  drctl dns  list   [--type T] [--name N] [--format table|csv|json]
+  drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
   drctl dns  add    NAME VALUE [--type A] [--ttl N] [--priority N] [--weight N] [--port N] [--disabled] [--append]
   drctl dns  delete NAME [--type T] [--value V] [--all]
   drctl dns  import FILE [--delete]
