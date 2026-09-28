@@ -1,4 +1,4 @@
-module dream-router7-dns
+module github.com/liketed/drctl
 
 go 1.26.5
 
