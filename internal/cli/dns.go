@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/liketed/drctl/internal/check"
-	"github.com/liketed/drctl/internal/unifi"
+	"github.com/liketed/dreamrouter-go/check"
+	"github.com/liketed/dreamrouter-go/unifi"
 )
 
 var dnsCSVHeader = []string{"type", "name", "value", "ttl", "priority", "weight", "port", "enabled"}

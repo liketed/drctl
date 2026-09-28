@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liketed/drctl/internal/fakerouter"
-	"github.com/liketed/drctl/internal/unifi"
+	"github.com/liketed/dreamrouter-go/fakerouter"
+	"github.com/liketed/dreamrouter-go/unifi"
 )
 
 type result struct {
@@ -115,7 +115,7 @@ func TestDNSAllTypesAndValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"x.home.internal", "999.1.1.1"}, "invalid IPv4 address"},
+		{[]string{"x.home.internal", "999.1.1.1"}, `value must be an IPv4 address for A records (got "999.1.1.1")`},
 		{[]string{"home.internal", "mail.home.internal", "--type", "MX", "--ttl", "60"}, "ttl cannot be set for MX records (only A, AAAA, CNAME records)"},
 		{[]string{"x.home.internal", "192.168.1.5", "--port", "80"}, "port cannot be set for A records"},
 		{[]string{"lab.home.internal", "ns1.home.internal", "--type", "NS"}, "conditional forwarders"},
@@ -188,7 +188,7 @@ func TestDNSImport(t *testing.T) {
 	headed := writeTemp(t, "type,name,value,priority\nMX,home.internal,mx1.home.internal,10\nMX,home.internal,mx2.home.internal,20\n")
 	drctl(t, r, "dns", "import", headed).ok(t).says(t, "created 2")
 
-	drctl(t, r, "dns", "import", writeTemp(t, "a.home.internal,192.168.1.1\nb.home.internal,1.2.3\n")).fails(t, 1, "in.csv:2: invalid IPv4 address")
+	drctl(t, r, "dns", "import", writeTemp(t, "a.home.internal,192.168.1.1\nb.home.internal,1.2.3\n")).fails(t, 1, `in.csv:2: value must be an IPv4 address for A records (got "1.2.3")`)
 	drctl(t, r, "dns", "import", writeTemp(t, "a.home.internal,192.168.1.1\na.home.internal,192.168.1.1\n")).fails(t, 1, "in.csv:2: duplicate record")
 
 	del := writeTemp(t, "nas.home.internal\nold.home.internal,192.168.1.1\nmissing.home.internal\n")

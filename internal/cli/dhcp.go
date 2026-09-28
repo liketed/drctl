@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/liketed/drctl/internal/check"
-	"github.com/liketed/drctl/internal/unifi"
+	"github.com/liketed/dreamrouter-go/check"
+	"github.com/liketed/dreamrouter-go/unifi"
 )
 
 var dhcpCSVHeader = []string{"mac", "ip", "name", "network"}

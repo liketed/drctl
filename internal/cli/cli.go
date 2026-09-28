@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/liketed/drctl/internal/unifi"
+	"github.com/liketed/dreamrouter-go/unifi"
 )
 
 // Version is set at build time with -ldflags "-X github.com/liketed/drctl/internal/cli.Version=1.2.3".
@@ -222,8 +222,8 @@ func (c *command) connect() (*unifi.Client, error) {
 		Host: host, Site: c.site, Username: user, Password: password,
 		InsecureSkipVerify: env.Insecure,
 		LoginRetryTimeout:  c.loginRetry,
-		Logf: func(format string, args ...any) {
-			fmt.Fprintf(env.Stderr, "drctl: "+format+"\n", args...)
+		Logf: func(_ context.Context, msg string) {
+			fmt.Fprintf(env.Stderr, "drctl: %s\n", msg)
 		},
 	})
 	if err != nil {

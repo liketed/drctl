@@ -462,8 +462,10 @@ as their DNS server.
   point `--host` at a router on a network you trust.
 - drctl uses the Network application's internal (undocumented) API, the same one the
   web UI uses. A future UniFi Network update could change it.
-- A Terraform/OpenTofu provider for the same DNS records lives at
-  [liketed/terraform-provider-dreamrouter](https://github.com/liketed/terraform-provider-dreamrouter).
+- A Terraform/OpenTofu provider manages the same DNS records, DHCP reservations and
+  hosts: [liketed/terraform-provider-dreamrouter](https://github.com/liketed/terraform-provider-dreamrouter).
+  Both use the same API client and validation, from
+  [liketed/dreamrouter-go](https://github.com/liketed/dreamrouter-go).
 
 ## Development
 
@@ -471,14 +473,15 @@ as their DNS server.
 go vet ./... && go test ./...
 ```
 
-The tests run every command in-process against `internal/fakerouter`, an in-memory
-fake of the router's API (login and its limit, static DNS, clients and networks, with
-the router's error codes); no router or network is needed.
+The tests run every command in-process against an in-memory fake of the router's API
+(login and its limit, static DNS, clients and networks, with the router's error codes);
+no router or network is needed.
 
 | Path | Contents |
 |---|---|
 | `cmd/drctl` | Entry point. |
 | `internal/cli` | Commands, argument parsing, CSV import/export, output formats. |
-| `internal/check` | Validation of DNS records, MAC addresses and reservations. |
-| `internal/unifi` | Router API client: login and retries, DNS records, clients, networks. |
-| `internal/fakerouter` | In-memory fake router for tests. |
+
+The router API client (`unifi`), validation (`check`) and fake router (`fakerouter`) are
+in [dreamrouter-go](https://github.com/liketed/dreamrouter-go), shared with the
+Terraform provider.

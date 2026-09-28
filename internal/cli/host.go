@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liketed/drctl/internal/check"
-	"github.com/liketed/drctl/internal/unifi"
+	"github.com/liketed/dreamrouter-go/check"
+	"github.com/liketed/dreamrouter-go/unifi"
 )
 
 // A "host" is a device with a DHCP reservation and a DNS name. The router
