@@ -47,6 +47,19 @@ ignored by git. Cross-compile for another machine with e.g.
 `GOOS=linux GOARCH=arm64 go build -o drctl ./cmd/drctl`. To stamp a version, build with
 `-ldflags "-X github.com/liketed/drctl/internal/cli.Version=0.1.0"`.
 
+`drctl version` shows which source the binary was built from:
+
+```
+drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)
+```
+
+That is the commit and its date (Go records those, not the time of the build), plus
+"with uncommitted changes" for a local build of a modified checkout. Compare the commit
+with the repository's latest to see whether your installed drctl is up to date. Just
+after a new commit is pushed, `go install ...@latest` can still fetch the previous one
+for a few minutes; `GOPROXY=direct go install github.com/liketed/drctl/cmd/drctl@main`
+gets the newest immediately.
+
 ## Logging in
 
 ```bash

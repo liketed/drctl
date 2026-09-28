@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -352,7 +353,7 @@ func TestUsageAndPassword(t *testing.T) {
 	r := fakerouter.New()
 	defer r.Close()
 	drctl(t, r).ok(t).says(t, "drctl dhcp add")
-	drctl(t, r, "version").ok(t).says(t, "drctl dev")
+	drctl(t, r, "version").ok(t).says(t, "drctl dev (")
 	drctl(t, r, "nope").fails(t, 2, `unknown command "nope"`)
 	drctl(t, r, "dns").fails(t, 2, "needs a subcommand")
 	drctl(t, r, "dns", "list", "--bogus").fails(t, 2, "flag provided but not defined: -bogus")
@@ -412,5 +413,41 @@ func TestDNSListShowsHostNames(t *testing.T) {
 	drctl(t, r, "dns", "delete", "wtrpro0.test.com").fails(t, 1, `wtrpro0.test.com is the DNS name of device wtrpro0.test.com (c8:ff:bf:05:d7:58, 192.168.1.124), not a static record; remove it with "drctl host delete wtrpro0.test.com"`)
 	if c, _ := r.Client("c8:ff:bf:05:d7:58"); !c.LocalDNSRecordEnabled {
 		t.Fatal("dns delete touched the host")
+	}
+}
+
+func TestFormatVersion(t *testing.T) {
+	info := func(mainVersion string, settings ...string) *debug.BuildInfo {
+		bi := &debug.BuildInfo{GoVersion: "go1.26.5", Main: debug.Module{Path: "github.com/liketed/drctl", Version: mainVersion}}
+		for i := 0; i+1 < len(settings); i += 2 {
+			bi.Settings = append(bi.Settings, debug.BuildSetting{Key: settings[i], Value: settings[i+1]})
+		}
+		return bi
+	}
+	for _, tc := range []struct {
+		name, version string
+		info          *debug.BuildInfo
+		want          string
+	}{
+		{"go install @commit", "dev", info("v0.0.0-20260928220345-71d2dbb77da8"),
+			"drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)"},
+		{"go install after a tag", "dev", info("v0.1.1-0.20260928220345-71d2dbb77da8"),
+			"drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)"},
+		{"go install @tag", "dev", info("v0.1.0"), "drctl v0.1.0 (go1.26.5)"},
+		{"go build in a clone", "dev", info("(devel)", "vcs.revision", "71d2dbb77da894a034d950f18d22118ccb25ee0a",
+			"vcs.time", "2026-09-28T22:03:45Z", "vcs.modified", "false"),
+			"drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)"},
+		{"go build with local changes", "dev", info("(devel)", "vcs.revision", "71d2dbb77da894a0", "vcs.modified", "true"),
+			"drctl dev (commit 71d2dbb with uncommitted changes, go1.26.5)"},
+		{"go build in a clone (Go 1.24+ stamps a pseudo-version)", "dev", info("v0.0.0-20260928220345-71d2dbb77da8+dirty",
+			"vcs.revision", "71d2dbb77da894a034d950f18d22118ccb25ee0a", "vcs.time", "2026-09-28T22:03:45Z", "vcs.modified", "true"),
+			"drctl dev (commit 71d2dbb with uncommitted changes, committed 2026-09-28 22:03 UTC, go1.26.5)"},
+		{"version from -ldflags", "0.2.0", info("v0.0.0-20260928220345-71d2dbb77da8"),
+			"drctl 0.2.0 (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)"},
+		{"no build info", "dev", nil, "drctl dev"},
+	} {
+		if got := formatVersion(tc.version, tc.info); got != tc.want {
+			t.Errorf("%s:\n got  %q\n want %q", tc.name, got, tc.want)
+		}
 	}
 }

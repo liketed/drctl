@@ -78,7 +78,7 @@ Usage:
   drctl host add    NAME IP --mac MAC [--network NET] [--device-name NAME]
   drctl host delete NAME [--keep-reservation]
 
-  drctl version
+  drctl version       show the version, source commit and commit date
 
 Options for every command:
   --host HOST          router address (default $DREAMROUTER_HOST, then 192.168.1.1)
@@ -120,7 +120,7 @@ func run(ctx context.Context, args []string, env *Env) error {
 		return nil
 	}
 	if args[0] == "version" || args[0] == "--version" {
-		fmt.Fprintf(env.Stdout, "drctl %s\n", Version)
+		fmt.Fprintln(env.Stdout, versionString())
 		return nil
 	}
 	commands := map[string]map[string]func(context.Context, *command) error{
