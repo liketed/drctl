@@ -29,7 +29,7 @@ within about 10–20 seconds.
 ## Installing
 
 ```bash
-go install github.com/liketed/drctl/cmd/drctl@latest   # installs into $(go env GOPATH)/bin, usually ~/go/bin
+go install github.com/liketed/drctl/cmd/drctl@latest   # latest release, into $(go env GOPATH)/bin (usually ~/go/bin)
 drctl --help
 ```
 
@@ -47,18 +47,20 @@ ignored by git. Cross-compile for another machine with e.g.
 `GOOS=linux GOARCH=arm64 go build -o drctl ./cmd/drctl`. To stamp a version, build with
 `-ldflags "-X github.com/liketed/drctl/internal/cli.Version=0.1.0"`.
 
-`drctl version` shows which source the binary was built from:
+`drctl version` shows which version, or which source commit, the binary was built from:
 
 ```
-drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)
+drctl v0.1.0 (go1.26.5)                                                  # a release
+drctl dev (commit 71d2dbb, committed 2026-09-28 22:03 UTC, go1.26.5)    # a commit
 ```
+
+Releases are listed on the [GitHub releases page](https://github.com/liketed/drctl/tags).
 
 That is the commit and its date (Go records those, not the time of the build), plus
 "with uncommitted changes" for a local build of a modified checkout. Compare the commit
-with the repository's latest to see whether your installed drctl is up to date. Just
-after a new commit is pushed, `go install ...@latest` can still fetch the previous one
-for a few minutes; `GOPROXY=direct go install github.com/liketed/drctl/cmd/drctl@main`
-gets the newest immediately.
+with the repository's latest to see whether your installed drctl is up to date. `@latest`
+installs the newest release; to try unreleased changes, install the main branch with
+`GOPROXY=direct go install github.com/liketed/drctl/cmd/drctl@main`.
 
 ## Logging in
 
@@ -485,3 +487,14 @@ no router or network is needed.
 The router API client (`unifi`), validation (`check`) and fake router (`fakerouter`) are
 in [dreamrouter-go](https://github.com/liketed/dreamrouter-go), shared with the
 Terraform provider.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE) (SPDX: `Apache-2.0`), like
+[dreamrouter-go](https://github.com/liketed/dreamrouter-go) and the
+[Terraform provider](https://github.com/liketed/terraform-provider-dreamrouter).
+
+You may use, modify and distribute drctl, including in commercial settings, provided you
+keep the license and any copyright notices, and state significant changes you make to
+the files. It is provided "as is", without warranties or conditions of any kind; see the
+[LICENSE](LICENSE) file for the full terms.
