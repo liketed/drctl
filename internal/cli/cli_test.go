@@ -451,3 +451,75 @@ func TestFormatVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkListAndShow(t *testing.T) {
+	r := fakerouter.New()
+	defer r.Close()
+	list := drctl(t, r, "network", "list").ok(t).stdout
+	if !strings.Contains(list, "Default  192.168.1.0/24  on    192.168.1.6 - 192.168.1.254  localdomain  off") || strings.Contains(list, "Internet 1") {
+		t.Fatalf("network list (WAN connections must be left out):\n%s", list)
+	}
+	drctl(t, r, "network", "show").ok(t).says(t, "Network Default (192.168.1.0/24)", "Network boot     off", "TFTP server      (not set)")
+	drctl(t, r, "network", "show", "default", "--format", "csv").ok(t).says(t, "name,subnet,dhcp,dhcp_start,dhcp_stop,domain,boot_enabled,boot_server,boot_file,tftp_server\nDefault,192.168.1.0/24,on,")
+	drctl(t, r, "network", "show", "IoT").fails(t, 1, `no network named "IoT" (networks: Default 192.168.1.1/24)`)
+}
+
+func TestNetworkBoot(t *testing.T) {
+	r := fakerouter.New()
+	defer r.Close()
+	stored := func() map[string]any { return r.Network("Default") }
+
+	drctl(t, r, "network", "boot", "--server", "192.168.1.20", "--file", "netboot.xyz.efi", "--dry-run").ok(t).
+		says(t, "would update network boot on Default:", "network boot  off -> on", "boot server   - -> 192.168.1.20", "boot file     - -> netboot.xyz.efi")
+	if _, ok := stored()["dhcpd_boot_enabled"]; ok {
+		t.Fatal("dry run changed the router")
+	}
+
+	drctl(t, r, "network", "boot", "Default", "--server", "192.168.1.20", "--file", "netboot.xyz.efi").ok(t).
+		says(t, "updated network boot on Default: on, server 192.168.1.20, file netboot.xyz.efi", "next time they ask for an address")
+	if n := stored(); n["dhcpd_boot_enabled"] != true || n["dhcpd_boot_server"] != "192.168.1.20" || n["dhcpd_boot_filename"] != "netboot.xyz.efi" || n["dhcpd_start"] != "192.168.1.6" {
+		t.Fatalf("stored %v", n)
+	}
+	drctl(t, r, "network", "boot", "--server", "192.168.1.20", "--file", "netboot.xyz.efi").ok(t).says(t, "unchanged network boot on Default")
+	drctl(t, r, "network", "list").ok(t).says(t, "localdomain  on")
+
+	drctl(t, r, "network", "boot", "--tftp-server", "tftp.home.internal").ok(t).says(t, "TFTP server tftp.home.internal")
+	res := drctl(t, r, "network", "boot", "--off").ok(t)
+	res.says(t, "updated network boot on Default: off (server 192.168.1.20 and file netboot.xyz.efi kept, not active), TFTP server tftp.home.internal",
+		"TFTP server tftp.home.internal is still handed out (DHCP option 66); use --no-tftp")
+	if n := stored(); n["dhcpd_boot_enabled"] != false || n["dhcpd_boot_filename"] != "netboot.xyz.efi" {
+		t.Fatalf("after --off: %v", n)
+	}
+	drctl(t, r, "network", "show").ok(t).says(t, "Network boot     off (stored: server 192.168.1.20, file netboot.xyz.efi)")
+	drctl(t, r, "network", "boot", "--no-tftp").ok(t)
+	if stored()["dhcpd_tftp_server"] != "" {
+		t.Fatal("--no-tftp did not clear the TFTP server")
+	}
+
+	// A boot server outside the subnet is allowed, with a warning.
+	res = drctl(t, r, "network", "boot", "--server", "10.0.0.5", "--file", "a.efi").ok(t)
+	if !strings.Contains(res.stderr, "boot server 10.0.0.5 is outside Default's subnet (192.168.1.0/24)") {
+		t.Fatalf("missing warning: %q", res.stderr)
+	}
+
+	for _, tc := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"--server", "boot.home.internal", "--file", "a.efi"}, 1, "must be an IPv4 address"},
+		{[]string{"--server", "192.168.1.20", "--file", "a,b.efi"}, 1, "spaces or commas"},
+		{[]string{"--server", "192.168.1.20", "--file", "a b.efi"}, 1, "spaces or commas"},
+		{[]string{"--tftp-server", "a,b"}, 1, "without spaces or commas"},
+		{[]string{"--server", "192.168.1.20"}, 2, "needs both --server and --file"},
+		{[]string{"--off", "--file", "a.efi"}, 2, "--off can't be combined"},
+		{[]string{"--tftp-server", "x", "--no-tftp"}, 2, "can't be combined"},
+		{[]string{}, 2, "nothing to change"},
+		{[]string{"IoT", "--off"}, 1, `no network named "IoT"`},
+	} {
+		drctl(t, r, append([]string{"network", "boot"}, tc.args...)...).fails(t, tc.code, tc.want)
+	}
+	if stored()["dhcpd_boot_server"] != "10.0.0.5" {
+		t.Fatal("a rejected command changed the router")
+	}
+}

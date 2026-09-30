@@ -61,7 +61,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records and DHCP reservations.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -77,6 +77,11 @@ Usage:
   drctl host list   [--format table|csv|json]
   drctl host add    NAME IP --mac MAC [--network NET] [--device-name NAME]
   drctl host delete NAME [--keep-reservation]
+
+  drctl network list   [--format table|csv|json]
+  drctl network show   [NETWORK] [--format table|csv|json]
+  drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
+  drctl network boot   [NETWORK] --off [--no-tftp]
 
   drctl version       show the version, source commit and commit date
 
@@ -124,9 +129,10 @@ func run(ctx context.Context, args []string, env *Env) error {
 		return nil
 	}
 	commands := map[string]map[string]func(context.Context, *command) error{
-		"dns":  {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},
-		"dhcp": {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
-		"host": {"list": hostList, "add": hostAdd, "delete": hostDelete},
+		"dns":     {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},
+		"dhcp":    {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
+		"host":    {"list": hostList, "add": hostAdd, "delete": hostDelete},
+		"network": {"list": networkList, "show": networkShow, "boot": networkBoot},
 	}
 	group, ok := commands[args[0]]
 	if !ok {

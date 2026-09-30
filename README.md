@@ -12,6 +12,7 @@ from CSV files:
   SRV and TXT.
 - **DHCP reservations** (fixed IPs) for devices, by MAC address.
 - **Hosts**: a device's reservation and its DNS name, set together in one command.
+- **Network settings**: network boot (PXE) and the TFTP server handed out by DHCP.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -102,6 +103,11 @@ drctl dhcp import FILE [--delete]
 drctl host list   [--format table|csv|json]
 drctl host add    NAME IP --mac MAC [--network NET] [--device-name NAME]
 drctl host delete NAME [--keep-reservation]
+
+drctl network list   [--format table|csv|json]
+drctl network show   [NETWORK] [--format table|csv|json]
+drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
+drctl network boot   [NETWORK] --off [--no-tftp]
 ```
 
 `drctl COMMAND SUBCOMMAND --help` shows the options of each command. `FILE` may be `-`
@@ -311,6 +317,85 @@ in the web UI unless `--device-name` is given.
 
 Host names are served like A records. They appear in `drctl dns list` marked `host`,
 in `drctl host list`, and in the DNS NAME column of `drctl dhcp list`.
+
+## Network settings
+
+`drctl network list` and `drctl network show` show the router's networks (LANs, not WAN
+connections) and their DHCP settings. With a single network (the usual `Default`), the
+`NETWORK` argument can be left out.
+
+```bash
+drctl network list
+# NAME     SUBNET          DHCP  POOL                         DOMAIN       NETWORK BOOT
+# Default  192.168.1.0/24  on    192.168.1.6 - 192.168.1.254  localdomain  off
+
+drctl network show
+# Network Default (192.168.1.0/24)
+#   DHCP             on, pool 192.168.1.6 - 192.168.1.254
+#   Domain           localdomain
+#   Network boot     off
+#   TFTP server      (not set)
+```
+
+### Network boot (PXE)
+
+Network boot lets a machine with no operating system start over the network: DHCP tells
+it which server to contact and which file to load (e.g. `netboot.xyz.efi` or a Linux
+installer). Devices that aren't network-booting ignore these settings.
+
+```bash
+drctl network boot --server 192.168.1.20 --file netboot.xyz.efi --dry-run
+# would update network boot on Default:
+#   network boot  off -> on
+#   boot server   - -> 192.168.1.20
+#   boot file     - -> netboot.xyz.efi
+
+drctl network boot --server 192.168.1.20 --file netboot.xyz.efi
+# updated network boot on Default: on, server 192.168.1.20, file netboot.xyz.efi
+
+drctl network boot --off
+# updated network boot on Default: off (server 192.168.1.20 and file netboot.xyz.efi kept, not active)
+```
+
+These are the web UI's **Network Boot**, **Network Boot Server IP** and **Network Boot
+Filename** settings; the router hands them out as dnsmasq's `dhcp-boot`. Devices pick up a
+change the next time they ask for an address, which a network-booting machine does when it
+starts. Running a command again with the same values changes nothing.
+
+- `--server` must be an IPv4 address (a server outside the network's subnet is allowed,
+  with a warning). `--file` may include a path, e.g. `efi64/syslinux.efi`.
+- `--off` keeps the server and file stored, as the web UI does, so turning network boot
+  back on is one command. (The router doesn't allow clearing a stored boot file.)
+- The router itself accepts values that would break its dnsmasq configuration (commas,
+  spaces, a host name as the server); drctl rejects them before sending anything.
+
+### TFTP server (DHCP option 66)
+
+`--tftp-server HOST` hands out a TFTP server name or address, which some devices (e.g. IP
+phones, embedded boards) ask for separately. It is **independent of network boot**: the
+router keeps handing it out when network boot is off, and drctl says so after `--off`.
+`--no-tftp` stops handing it out.
+
+```bash
+drctl network boot --server 192.168.1.20 --file pxelinux.0 --tftp-server tftp.home.internal
+drctl network boot --off --no-tftp
+```
+
+### Limitations
+
+- **One boot file per network.** UEFI and BIOS machines usually need different files,
+  but the router only exposes a single file name. The usual answer is a boot loader that
+  handles both, such as iPXE or netboot.xyz.
+- **No per-device boot settings.** The router's reservations only hold a MAC address and
+  an IP, so boot settings can't differ per device. To boot machines differently, hand
+  them all a boot loader that decides per machine on the server, e.g. an iPXE script:
+
+  ```
+  #!ipxe
+  chain http://192.168.1.20/boot/${net0/mac:hexhyp}.ipxe || chain http://192.168.1.20/boot/default.ipxe
+  ```
+
+  or put the machines on their own network (VLAN) with its own boot settings.
 
 ## Backup and restore
 
