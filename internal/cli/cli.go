@@ -78,6 +78,9 @@ Usage:
   drctl host add    NAME IP --mac MAC [--network NET] [--device-name NAME]
   drctl host delete NAME [--keep-reservation]
 
+  drctl leases list    [--network NET] [--format table|csv|json]
+  drctl leases reserve IP|MAC [--name NAME] [--dns-name NAME]
+
   drctl network list   [--format table|csv|json]
   drctl network show   [NETWORK] [--format table|csv|json]
   drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
@@ -133,6 +136,7 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"dhcp":    {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
 		"host":    {"list": hostList, "add": hostAdd, "delete": hostDelete},
 		"network": {"list": networkList, "show": networkShow, "boot": networkBoot},
+		"leases":  {"list": leasesList, "reserve": leasesReserve},
 	}
 	group, ok := commands[args[0]]
 	if !ok {

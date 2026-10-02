@@ -523,3 +523,67 @@ func TestNetworkBoot(t *testing.T) {
 		t.Fatal("a rejected command changed the router")
 	}
 }
+
+func TestLeases(t *testing.T) {
+	r := fakerouter.New()
+	defer r.Close()
+	fixed := time.Date(2026, 10, 2, 21, 0, 0, 0, time.UTC)
+	now = func() time.Time { return fixed }
+	defer func() { now = time.Now }()
+	exp := func(d time.Duration) float64 { return float64(fixed.Add(d).Unix()) }
+
+	r.PutLease(fakerouter.Lease{IP: "192.168.1.37", MAC: "aa:bb:cc:00:00:37", Hostname: "tv", OUI: "Samsung", Status: "online", ClientType: "WIRED", ExpiresUnix: exp(17*time.Hour + 5*time.Minute)})
+	r.PutLease(fakerouter.Lease{IP: "192.168.1.6", MAC: "aa:bb:cc:00:00:06", Hostname: "macbook", OUI: "Apple", Status: "online", ClientType: "WIRELESS", ExpiresUnix: exp(23*time.Hour + 41*time.Minute)})
+	r.PutLease(fakerouter.Lease{IP: "192.168.1.12", MAC: "aa:bb:cc:00:00:12", Hostname: "pxe", OUI: "Raspberry Pi", Status: "offline", ExpiresUnix: exp(3*24*time.Hour + 4*time.Hour)})
+	r.PutClient(fakerouter.Client{MAC: "aa:bb:cc:00:00:12", UseFixedIP: true, FixedIP: "192.168.1.12", NetworkID: fakerouter.NetworkID,
+		LocalDNSRecord: "pxe.home.internal", LocalDNSRecordEnabled: true})
+	r.PutClient(fakerouter.Client{MAC: "aa:bb:cc:00:00:37", Hostname: "tv", LastIP: "192.168.1.37"})
+
+	res := drctl(t, r, "leases", "list").ok(t)
+	lines := strings.Split(strings.TrimSpace(res.stdout), "\n")
+	if len(lines) != 4 || !strings.HasPrefix(lines[1], "192.168.1.6 ") || !strings.HasPrefix(lines[3], "192.168.1.37") {
+		t.Fatalf("leases should be sorted by IP:\n%s", res.stdout)
+	}
+	for _, want := range []string{"23h 41m", "17h 5m", "3d 4h", "yes (pxe.home.internal)", "offline", "Raspberry Pi"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Fatalf("table missing %q:\n%s", want, res.stdout)
+		}
+	}
+	if !strings.Contains(res.stderr, "3 leases (1 reserved)") {
+		t.Fatalf("summary: %q", res.stderr)
+	}
+	csvOut := drctl(t, r, "leases", "list", "--format", "csv").ok(t).stdout
+	if !strings.HasPrefix(csvOut, "ip,mac,name,hostname,vendor,status,connection,expires,reserved,dns_name,network\n192.168.1.6,aa:bb:cc:00:00:06,macbook,macbook,Apple,online,wireless,2026-10-03T20:41:00Z,false,,Default\n") {
+		t.Fatalf("csv:\n%s", csvOut)
+	}
+	drctl(t, r, "leases", "list", "--network", "default").ok(t).says(t, "192.168.1.37")
+	drctl(t, r, "leases", "list", "--network", "IoT").fails(t, 1, `no network named "IoT"`)
+
+	// reserve: by IP, by MAC, as a host, dry run, already reserved.
+	drctl(t, r, "leases", "reserve", "192.168.1.37", "--name", "Living room TV", "--dry-run").ok(t).says(t, "would create aa:bb:cc:00:00:37 -> 192.168.1.37 (Living room TV)")
+	if c, _ := r.Client("aa:bb:cc:00:00:37"); c.UseFixedIP {
+		t.Fatal("dry run reserved the device")
+	}
+	drctl(t, r, "leases", "reserve", "192.168.1.37", "--name", "Living room TV").ok(t).says(t, "created aa:bb:cc:00:00:37 -> 192.168.1.37 (Living room TV)")
+	if c, _ := r.Client("aa:bb:cc:00:00:37"); !c.UseFixedIP || c.FixedIP != "192.168.1.37" || c.Name != "Living room TV" || c.NetworkID != fakerouter.NetworkID {
+		t.Fatalf("stored %+v", c)
+	}
+	drctl(t, r, "leases", "reserve", "AA-BB-CC-00-00-37").ok(t).says(t, "unchanged aa:bb:cc:00:00:37 -> 192.168.1.37")
+	drctl(t, r, "leases", "list").ok(t).says(t, "192.168.1.37  aa:bb:cc:00:00:37")
+	drctl(t, r, "leases", "reserve", "aa:bb:cc:00:00:06", "--dns-name", "macbook.home.internal").ok(t).
+		says(t, "created host macbook.home.internal -> 192.168.1.6 (aa:bb:cc:00:00:06)")
+	if c, _ := r.Client("aa:bb:cc:00:00:06"); !c.LocalDNSRecordEnabled || c.LocalDNSRecord != "macbook.home.internal" {
+		t.Fatalf("host: %+v", c)
+	}
+	drctl(t, r, "leases", "list").ok(t).says(t, "yes (macbook.home.internal)")
+
+	drctl(t, r, "leases", "reserve", "192.168.1.99").fails(t, 1, `no current DHCP lease for 192.168.1.99`)
+	drctl(t, r, "leases", "reserve", "aa:bb:cc:00:00:99").fails(t, 1, `no current DHCP lease for aa:bb:cc:00:00:99`)
+	drctl(t, r, "leases", "reserve", "nonsense").fails(t, 2, `neither an IPv4 address nor a MAC address`)
+	drctl(t, r, "leases", "reserve", "192.168.1.12", "--dns-name", "a b").fails(t, 1, "must not be empty or contain whitespace")
+	// 13 of the commands above log in (the last two are rejected first);
+	// reserve must not log in a second time for its dhcp/host add step.
+	if n := r.LoginCount(); n != 13 {
+		t.Fatalf("%d logins for 13 commands; want exactly one each", n)
+	}
+}

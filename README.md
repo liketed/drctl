@@ -13,6 +13,8 @@ from CSV files:
 - **DHCP reservations** (fixed IPs) for devices, by MAC address.
 - **Hosts**: a device's reservation and its DNS name, set together in one command.
 - **Network settings**: network boot (PXE) and the TFTP server handed out by DHCP.
+- **Leases**: which device has which address, and turning a current address into a
+  reservation.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -103,6 +105,9 @@ drctl dhcp import FILE [--delete]
 drctl host list   [--format table|csv|json]
 drctl host add    NAME IP --mac MAC [--network NET] [--device-name NAME]
 drctl host delete NAME [--keep-reservation]
+
+drctl leases list    [--network NET] [--format table|csv|json]
+drctl leases reserve IP|MAC [--name NAME] [--dns-name NAME]
 
 drctl network list   [--format table|csv|json]
 drctl network show   [NETWORK] [--format table|csv|json]
@@ -317,6 +322,44 @@ in the web UI unless `--device-name` is given.
 
 Host names are served like A records. They appear in `drctl dns list` marked `host`,
 in `drctl host list`, and in the DNS NAME column of `drctl dhcp list`.
+
+## Leases
+
+`drctl leases list` shows the router's current DHCP leases: which device has which
+address, whether it is online, when its lease expires, and whether it has a reservation.
+
+```bash
+drctl leases list
+# IP             MAC                NAME                VENDOR             STATUS   EXPIRES  RESERVED
+# 192.168.1.6    aa:bb:cc:00:00:06  macbook             Apple              online   23h 41m
+# 192.168.1.12   aa:bb:cc:00:00:12  pxe                 Raspberry Pi       online   -        yes (pxe.home.internal)
+# 192.168.1.37   aa:bb:cc:00:00:37  living-room-tv      Samsung            online   17h 05m
+# 40 leases (3 reserved)
+```
+
+- Sorted by IP. Names are the ones set in the web UI, else the router's own name for the
+  device, else the device's host name. The vendor comes from the MAC address.
+- `--network NET` shows one network's leases. The summary line goes to stderr.
+- `--format csv|json` adds the host name, connection (wired or wireless), the expiry as a
+  timestamp, the DNS name and the network.
+
+`drctl leases reserve` turns a device's **current** address into a reservation, so it keeps
+that address. Name the device by its IP or MAC address:
+
+```bash
+drctl leases reserve 192.168.1.37 --name "Living room TV" --dry-run
+# would create aa:bb:cc:00:00:37 -> 192.168.1.37 (Living room TV)
+
+drctl leases reserve 192.168.1.37 --name "Living room TV"
+# created aa:bb:cc:00:00:37 -> 192.168.1.37 (Living room TV)
+
+drctl leases reserve aa:bb:cc:00:00:06 --dns-name macbook.home.internal   # reservation + DNS name
+# created host macbook.home.internal -> 192.168.1.6 (aa:bb:cc:00:00:06)
+```
+
+It does exactly what `drctl dhcp add` (or, with `--dns-name`, `drctl host add`) would do for
+that device and address, with the same checks and output, in one login. A device that is
+already reserved at that address is reported as `unchanged`.
 
 ## Network settings
 

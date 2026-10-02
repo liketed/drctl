@@ -1,5 +1,5 @@
-github.com/liketed/dreamrouter-go v0.2.0 h1:8uaz8Qp4XGl3kpP+m8lom8wvfZulMmZzCYg4ehwDuaE=
-github.com/liketed/dreamrouter-go v0.2.0/go.mod h1:bVRfdqO++14R5fBFLQwKxA8T6SDz9py3OYrDT+BV+0o=
+github.com/liketed/dreamrouter-go v0.3.0 h1:ieZuyKzBRysLneyVMkBHk9oLH1EeZC8u/cc3ztlb4Hw=
+github.com/liketed/dreamrouter-go v0.3.0/go.mod h1:bVRfdqO++14R5fBFLQwKxA8T6SDz9py3OYrDT+BV+0o=
 golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
 golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
 golang.org/x/term v0.46.0 h1:3+OXuTbaKDgwk8jTi3aSLHRlmWqHEUDUtxnbFigO4YE=

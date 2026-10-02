@@ -3,7 +3,7 @@ module github.com/liketed/drctl
 go 1.26.5
 
 require (
-	github.com/liketed/dreamrouter-go v0.2.0
+	github.com/liketed/dreamrouter-go v0.3.0
 	golang.org/x/term v0.46.0
 )
 
