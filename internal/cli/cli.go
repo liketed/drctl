@@ -94,6 +94,8 @@ Usage:
   drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
   drctl network boot   [NETWORK] --off [--no-tftp]
 
+  drctl status  [--format text|json]   the router's versions, internet connection, load, clients and firmware
+
   drctl version       show the version, source commit and commit date
 
 Options for every command:
@@ -138,6 +140,9 @@ func run(ctx context.Context, args []string, env *Env) error {
 	if args[0] == "version" || args[0] == "--version" {
 		fmt.Fprintln(env.Stdout, versionString())
 		return nil
+	}
+	if args[0] == "status" {
+		return statusCmd(ctx, &command{env: env, name: "status", args: args[1:]})
 	}
 	commands := map[string]map[string]func(context.Context, *command) error{
 		"dns":     {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},

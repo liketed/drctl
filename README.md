@@ -17,6 +17,8 @@ from CSV files:
   reservation.
 - **Clients**: which devices are connected and how, naming them, adding notes, and
   blocking, unblocking or forgetting them.
+- **Status**: the router's versions, internet connection, load, clients and firmware at a
+  glance.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -123,6 +125,8 @@ drctl network list   [--format table|csv|json]
 drctl network show   [NETWORK] [--format table|csv|json]
 drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
 drctl network boot   [NETWORK] --off [--no-tftp]
+
+drctl status [--format text|json]
 ```
 
 `drctl COMMAND SUBCOMMAND --help` shows the options of each command. `FILE` may be `-`
@@ -445,6 +449,31 @@ drctl clients forget  aa:bb:cc:00:00:37
   - `forget` is sent anyway: there is nothing stored, but it's harmless.
 - MAC addresses are always checked: the router itself accepts a block for any value,
   even text that isn't a MAC address, and creates a junk entry for it.
+
+## Status
+
+`drctl status` shows the router at a glance:
+
+```bash
+drctl status
+# Dream Router 7 (UDMA67A), UniFi OS 5.1.33, Network 10.6.106, up 6d 17h
+# internet:   ok, 203.0.113.7, Example ISP (AS64500)
+#             eth3 2.5 Gbps, PPPoE, latency 5 ms, 100% available, 2 drops, up 2d 6h
+# system:     CPU 9.9%, memory 58.1% of 3.0 GB, CPU temperature 59.8°C, load 3.96
+# clients:    41 connected (20 wired, 21 Wi-Fi)
+# devices:    Dream Router 7 5.1.33.34087, U7 Pro 8.7.11.19419
+# updates:    none available
+# speed test: never run
+```
+
+- **internet**: whether the internet is reachable, the public (WAN) IP address and the
+  provider; then the WAN port and its link speed, latency, the router's availability
+  measurement, connection drops, and how long the connection has been up.
+- **devices**: the router, access points and switches with their firmware. **updates**
+  lists any firmware (or Network application) updates available.
+- A **health** line appears only when part of the network reports a problem.
+- `--format json` gives every value, with units in the field names, for scripts:
+  `drctl status --format json | jq -r .internet.ip` prints the WAN IP address.
 
 ## Network settings
 
