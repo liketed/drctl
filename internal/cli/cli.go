@@ -106,6 +106,10 @@ Usage:
   drctl backup delete    NAME
   drctl backup restore   FILE [--yes] [--no-safety-backup]
 
+  drctl ssh     [--format text|json]          show SSH to the router and to adopted devices
+  drctl ssh router  on|off
+  drctl ssh devices on|off
+
   drctl status  [--format text|json]   the router's versions, internet connection, load, clients and firmware
 
   drctl version       show the version, source commit and commit date
@@ -164,6 +168,7 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"leases":  {"list": leasesList, "reserve": leasesReserve},
 		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
 			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},
+		"ssh": {"show": sshShow, "router": sshRouter, "devices": sshDevices},
 		"backup": {"list": backupList, "download": backupDownload, "delete": backupDelete,
 			"schedule": backupSchedule, "restore": backupRestore},
 		"portforward": {"list": portforwardList, "add": portforwardAdd, "delete": portforwardDelete,
@@ -172,6 +177,9 @@ func run(ctx context.Context, args []string, env *Env) error {
 	group, ok := commands[args[0]]
 	if !ok {
 		return usagef("unknown command %q", args[0])
+	}
+	if args[0] == "ssh" && (len(args) == 1 || len(args[1]) > 0 && args[1][0] == '-') {
+		args = append([]string{"ssh", "show"}, args[1:]...) // "drctl ssh" shows both settings
 	}
 	if len(args) < 2 {
 		return usagef("%q needs a subcommand", args[0])

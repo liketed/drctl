@@ -23,6 +23,7 @@ from CSV files:
   glance.
 - **Backups and restores** of all the router's network settings, and the automatic
   backup schedule.
+- **SSH**: switching SSH to the router, or to access points, on and off.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -141,6 +142,10 @@ drctl backup download  [FILE] [--auto NAME | --latest] [--history DAYS] [--force
 drctl backup schedule  [--daily | --weekly | --monthly | --off] [--at HH:MM] [--history DAYS]
 drctl backup delete    NAME
 drctl backup restore   FILE [--yes] [--no-safety-backup]
+
+drctl ssh [--format text|json]
+drctl ssh router  on|off
+drctl ssh devices on|off
 
 drctl status [--format text|json]
 ```
@@ -499,6 +504,28 @@ drctl portforward delete web
   **enabled** rules may forward the same port and protocol. A disabled duplicate is
   allowed, but `enable` refuses while the other one is enabled.
 - Rules are named, so `delete`, `enable` and `disable` take the name (case-insensitive).
+
+## SSH
+
+drctl itself never uses SSH: it talks to the router's HTTPS API, like the web UI. It can
+switch the router's two SSH settings on and off:
+
+```bash
+drctl ssh
+# router:  on   (SSH to the router itself)
+# devices: on, username "admin"   (SSH to adopted devices such as access points)
+
+drctl ssh router off      # turned off SSH to the router; new SSH logins to the router are refused
+drctl ssh router on       # turned on SSH to the router (port 22, with the root password set before)
+drctl ssh devices off
+```
+
+- **router** is SSH to the router's own shell (UniFi OS: Control Plane → Console → SSH).
+  **devices** is SSH to adopted devices such as access points, with a shared username and
+  password (Network: Device SSH Authentication).
+- Passwords aren't changed: turning router SSH on keeps the root password set before.
+- Nothing is written if a setting is already as asked. (Every write of the device
+  setting makes the router issue its devices a new internal token.) `--dry-run` works.
 
 ## Status
 
