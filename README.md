@@ -21,6 +21,8 @@ from CSV files:
   the checks the router itself doesn't make.
 - **Status**: the router's versions, internet connection, load, clients and firmware at a
   glance.
+- **Backups and restores** of all the router's network settings, and the automatic
+  backup schedule.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -133,6 +135,12 @@ drctl portforward add     NAME PORT IP[:PORT] [--proto tcp|udp|both] [--from CID
 drctl portforward delete  NAME
 drctl portforward enable  NAME
 drctl portforward disable NAME
+
+drctl backup list      [--format table|csv|json]
+drctl backup download  [FILE] [--auto NAME | --latest] [--history DAYS] [--force]
+drctl backup schedule  [--daily | --weekly | --monthly | --off] [--at HH:MM] [--history DAYS]
+drctl backup delete    NAME
+drctl backup restore   FILE [--yes] [--no-safety-backup]
 
 drctl status [--format text|json]
 ```
@@ -596,7 +604,50 @@ drctl network boot --off --no-tftp
 
   or put the machines on their own network (VLAN) with its own boot settings.
 
-## Backup and restore
+## Backups of the router
+
+`drctl backup` works with the Network application's own backups: one `.unf` file holds
+**all** its settings (networks, Wi-Fi, DNS records, reservations, device names, port
+forwards and so on), the same file as **Settings → System → Backups** in the web UI.
+
+```bash
+drctl backup download                    # a new backup, e.g. dreamrouter-2026-10-03-2046-10.6.106.unf
+drctl backup list                        # the router's automatic backups
+drctl backup download --latest           # download the newest automatic backup
+drctl backup schedule                    # automatic backups: monthly on the 1st at 00:30 (...)
+drctl backup schedule --weekly --at 03:00
+drctl backup restore dreamrouter-2026-10-03-2046-10.6.106.unf
+```
+
+**Backup files contain passwords, Wi-Fi keys and your network layout.** drctl saves them
+readable only by you and never overwrites a file (unless `--force`). `--history DAYS`
+adds that many days of statistics (the default, 0, is settings only). `FILE` may be `-`
+to write to stdout.
+
+**Restoring** replaces all the network settings with the backup's:
+
+```
+$ drctl backup restore dreamrouter-2026-10-03-2046-10.6.106.unf
+dreamrouter-2026-10-03-2046-10.6.106.unf: backup made 2026-10-03 20:46 by Network 10.6.106 (the router runs 10.6.106), checked by the router
+saved the current settings to dreamrouter-2026-10-03-2046-10.6.106-before-restore.unf first
+This replaces ALL of Dream Router 7's network settings (networks, Wi-Fi, DNS, reservations, port forwards, ...)
+with the backup's. The Network application restarts; routing carries on.
+Type the router's name (Dream Router 7) to restore: Dream Router 7
+restoring; waiting for the Network application to restart...
+restored Dream Router 7 from dreamrouter-2026-10-03-2046-10.6.106.unf; the Network application is back after 58s
+```
+
+- The router checks the file first; anything that isn't a backup is refused, and so is a
+  backup from a **newer** Network version than the router's.
+- drctl saves a backup of the current settings next to the file first, so a restore can
+  be undone (`--no-safety-backup` skips it). `--dry-run` only checks the file.
+- It asks you to type the router's name; `--yes` skips the question (for scripts).
+- The Network application restarts and its API and web UI are unavailable for about a
+  minute. Routing, the internet connection and connected devices carry on.
+- These are backups of the Network application. Backups of the whole console (all apps
+  and UniFi OS users) need the console owner's account and aren't supported.
+
+## CSV export and import
 
 The CSV output of the list commands is the input format of the import commands:
 

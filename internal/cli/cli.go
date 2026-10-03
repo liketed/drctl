@@ -61,7 +61,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, port forwards and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, port forwards, backups and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -99,6 +99,12 @@ Usage:
   drctl network show   [NETWORK] [--format table|csv|json]
   drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
   drctl network boot   [NETWORK] --off [--no-tftp]
+
+  drctl backup list      [--format table|csv|json]
+  drctl backup download  [FILE] [--auto NAME | --latest] [--history DAYS] [--force]
+  drctl backup schedule  [--daily | --weekly | --monthly | --off] [--at HH:MM] [--history DAYS]
+  drctl backup delete    NAME
+  drctl backup restore   FILE [--yes] [--no-safety-backup]
 
   drctl status  [--format text|json]   the router's versions, internet connection, load, clients and firmware
 
@@ -158,6 +164,8 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"leases":  {"list": leasesList, "reserve": leasesReserve},
 		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
 			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},
+		"backup": {"list": backupList, "download": backupDownload, "delete": backupDelete,
+			"schedule": backupSchedule, "restore": backupRestore},
 		"portforward": {"list": portforwardList, "add": portforwardAdd, "delete": portforwardDelete,
 			"enable": portforwardEnable, "disable": portforwardDisable},
 	}
