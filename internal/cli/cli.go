@@ -61,7 +61,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, port forwards and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -88,6 +88,12 @@ Usage:
   drctl clients block   MAC
   drctl clients unblock MAC
   drctl clients forget  MAC
+
+  drctl portforward list    [--format table|csv|json]
+  drctl portforward add     NAME PORT IP[:PORT] [--proto tcp|udp|both] [--from CIDR] [--disabled] [--log]
+  drctl portforward delete  NAME
+  drctl portforward enable  NAME
+  drctl portforward disable NAME
 
   drctl network list   [--format table|csv|json]
   drctl network show   [NETWORK] [--format table|csv|json]
@@ -152,6 +158,8 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"leases":  {"list": leasesList, "reserve": leasesReserve},
 		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
 			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},
+		"portforward": {"list": portforwardList, "add": portforwardAdd, "delete": portforwardDelete,
+			"enable": portforwardEnable, "disable": portforwardDisable},
 	}
 	group, ok := commands[args[0]]
 	if !ok {

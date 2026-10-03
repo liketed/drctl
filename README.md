@@ -17,6 +17,8 @@ from CSV files:
   reservation.
 - **Clients**: which devices are connected and how, naming them, adding notes, and
   blocking, unblocking or forgetting them.
+- **Port forwarding**: opening ports to the internet for a device on your network, with
+  the checks the router itself doesn't make.
 - **Status**: the router's versions, internet connection, load, clients and firmware at a
   glance.
 
@@ -125,6 +127,12 @@ drctl network list   [--format table|csv|json]
 drctl network show   [NETWORK] [--format table|csv|json]
 drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
 drctl network boot   [NETWORK] --off [--no-tftp]
+
+drctl portforward list    [--format table|csv|json]
+drctl portforward add     NAME PORT IP[:PORT] [--proto tcp|udp|both] [--from CIDR] [--disabled] [--log]
+drctl portforward delete  NAME
+drctl portforward enable  NAME
+drctl portforward disable NAME
 
 drctl status [--format text|json]
 ```
@@ -449,6 +457,40 @@ drctl clients forget  aa:bb:cc:00:00:37
   - `forget` is sent anyway: there is nothing stored, but it's harmless.
 - MAC addresses are always checked: the router itself accepts a block for any value,
   even text that isn't a MAC address, and creates a junk entry for it.
+
+## Port forwarding
+
+A port forward opens a port on the router's internet side and passes connections to a
+device on your network. `add` says exactly what it opens:
+
+```bash
+drctl portforward add web 8443 192.168.1.20:443 --proto tcp
+# created port forward "web": opens TCP 8443 on the internet, forwarded to 192.168.1.20:443
+
+drctl portforward add games 27000-27010 192.168.1.51 --proto udp --from 203.0.113.0/24 --disabled
+# created port forward "games" (disabled): UDP 27000-27010 -> 192.168.1.51:27000-27010 from 203.0.113.0/24; nothing is open until "drctl portforward enable games"
+
+drctl portforward list
+# NAME   PROTOCOL  PORT         FORWARD TO                FROM            STATE
+# games  UDP       27000-27010  192.168.1.51:27000-27010  203.0.113.0/24  disabled
+# web    TCP       8443         192.168.1.20:443          any             enabled
+
+drctl portforward enable games
+drctl portforward disable web
+drctl portforward delete web
+```
+
+- `PORT` is a port, an ascending range (`27000-27010`) or a list (`80,443`). Only a single
+  port can be forwarded to a different port (`8443` to `:443`); a range or list always
+  goes to the same ports, so leave `:PORT` off.
+- `--proto` is `tcp`, `udp` or `both` (the default). `--from` limits who may connect
+  (default `any`). `--disabled` creates the rule without opening anything. All commands
+  accept `--dry-run`.
+- drctl checks what the router doesn't: the address must be a device on one of your
+  networks (not the router), names are unique, ranges are ascending, and no two
+  **enabled** rules may forward the same port and protocol. A disabled duplicate is
+  allowed, but `enable` refuses while the other one is enabled.
+- Rules are named, so `delete`, `enable` and `disable` take the name (case-insensitive).
 
 ## Status
 
