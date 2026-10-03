@@ -61,7 +61,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -80,6 +80,14 @@ Usage:
 
   drctl leases list    [--network NET] [--format table|csv|json]
   drctl leases reserve IP|MAC [--name NAME] [--dns-name NAME]
+
+  drctl clients list    [--offline | --all | --blocked] [--wired | --wifi] [--days N] [--format table|csv|json]
+  drctl clients show    MAC|IP|NAME
+  drctl clients name    MAC NAME
+  drctl clients note    MAC TEXT
+  drctl clients block   MAC
+  drctl clients unblock MAC
+  drctl clients forget  MAC
 
   drctl network list   [--format table|csv|json]
   drctl network show   [NETWORK] [--format table|csv|json]
@@ -137,6 +145,8 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"host":    {"list": hostList, "add": hostAdd, "delete": hostDelete},
 		"network": {"list": networkList, "show": networkShow, "boot": networkBoot},
 		"leases":  {"list": leasesList, "reserve": leasesReserve},
+		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
+			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},
 	}
 	group, ok := commands[args[0]]
 	if !ok {

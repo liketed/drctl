@@ -15,6 +15,8 @@ from CSV files:
 - **Network settings**: network boot (PXE) and the TFTP server handed out by DHCP.
 - **Leases**: which device has which address, and turning a current address into a
   reservation.
+- **Clients**: which devices are connected and how, naming them, adding notes, and
+  blocking, unblocking or forgetting them.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -108,6 +110,14 @@ drctl host delete NAME [--keep-reservation]
 
 drctl leases list    [--network NET] [--format table|csv|json]
 drctl leases reserve IP|MAC [--name NAME] [--dns-name NAME]
+
+drctl clients list    [--offline | --all | --blocked] [--wired | --wifi] [--days N] [--format table|csv|json]
+drctl clients show    MAC|IP|NAME
+drctl clients name    MAC NAME
+drctl clients note    MAC TEXT
+drctl clients block   MAC
+drctl clients unblock MAC
+drctl clients forget  MAC
 
 drctl network list   [--format table|csv|json]
 drctl network show   [NETWORK] [--format table|csv|json]
@@ -360,6 +370,81 @@ drctl leases reserve aa:bb:cc:00:00:06 --dns-name macbook.home.internal   # rese
 It does exactly what `drctl dhcp add` (or, with `--dns-name`, `drctl host add`) would do for
 that device and address, with the same checks and output, in one login. A device that is
 already reserved at that address is reported as `unchanged`.
+
+## Clients
+
+`drctl clients list` shows the devices connected now: how they connect, the signal
+strength of Wi-Fi devices, how long they have been connected and their traffic.
+
+```bash
+drctl clients list
+# NAME          IP             MAC                CONNECTION    VIA                     SIGNAL   UPTIME   DOWN     UP       FLAGS
+# Windows PC    192.168.1.4    aa:bb:cc:00:00:04  wired 1G      Dream Router 7 port 1            6d 13h   61.1 GB  5.4 GB
+# macbook       192.168.1.6    aa:bb:cc:00:00:06  wifi 6GHz ax  home @ U7 Pro           -61 dBm  21h 43m  4.2 GB   2.0 GB   reserved
+# Printer       192.168.1.10   aa:bb:cc:00:00:10  wifi 2.4GHz n home @ U7 Pro           -49 dBm  11d 13h  21.7 MB  86.4 MB  note
+# 40 devices (40 online)
+```
+
+- **DOWN** is what the device downloaded, **UP** what it uploaded, since it connected.
+- **VIA** is the Wi-Fi network and access point, or the switch (or router) and port.
+- **FLAGS**: `reserved` (DHCP reservation), `blocked`, `guest`, `note`.
+- `--offline` lists devices that are offline but were seen in the last 7 days
+  (`--days N` to change), `--all` lists both, and `--blocked` lists every blocked device
+  however long ago it was seen. `--wired` and `--wifi` filter by connection.
+- `--format csv|json` gives every field: network, Wi-Fi network, band, standard, channel,
+  signal, uplink, port, link speed, uptime and traffic in seconds and bytes, vendor,
+  host name, last seen, blocked, reservation, DNS name and note.
+
+`drctl clients show` describes one device, found by MAC address, IP address or name:
+
+```bash
+drctl clients show macbook
+# name:            macbook
+# mac:             aa:bb:cc:00:00:06
+# vendor:          Apple, Inc.
+# model:           Apple MacBook Pro 16" - 2021
+# status:          online for 1d 19h
+# ip:              192.168.1.6 (reserved)
+# dns name:        macbook.home.internal
+# connection:      wifi 5GHz ax, "home", channel 44, signal -60 dBm
+# via:             home @ Dream Router 7
+# wifi experience: 99%
+# traffic:         113.5 MB down, 86.7 MB up
+# first seen:      2026-08-16 21:30
+# blocked:         no
+```
+
+Names and host names need not be unique (several devices may call themselves `wlan0`);
+if more than one device matches, drctl lists them so you can use the MAC address.
+
+The other commands change a device and take its **MAC address only**. All of them accept
+`--dry-run`:
+
+```bash
+drctl clients name    aa:bb:cc:00:00:10 "Office printer"   # "" removes the name
+drctl clients note    aa:bb:cc:00:00:10 "toner ordered"    # "" removes the note
+drctl clients block   aa:bb:cc:00:00:37                    # disconnect it and keep it off
+drctl clients unblock aa:bb:cc:00:00:37
+drctl clients forget  aa:bb:cc:00:00:37
+# forgot aa:bb:cc:00:00:37 (Living room TV) (name "Living room TV", reservation 192.168.1.37, history)
+```
+
+- **block** disconnects the device and stops it reconnecting, on Wi-Fi and wired ports.
+  drctl refuses to block the machine it is running on (recognised by its MAC or IP
+  address), so you can't cut yourself off.
+- **forget** removes everything the router knows about the device: its name, note,
+  reservation, DNS name and history. If it connects again, it appears as a new device.
+  drctl refuses to forget a blocked device; unblock it first.
+- **Unknown devices.** All five commands also accept a MAC address the router doesn't
+  know yet (a device that has never connected, or was forgotten), with a warning:
+  - `block` blocks it before it ever joins; `--blocked` then lists it.
+  - `name` and `note` create the router's record with that name or note, so the device
+    shows up named when it first connects.
+  - `unblock` just reports that it isn't blocked. (The router would accept the request,
+    but create an empty record, so drctl doesn't send it.)
+  - `forget` is sent anyway: there is nothing stored, but it's harmless.
+- MAC addresses are always checked: the router itself accepts a block for any value,
+  even text that isn't a MAC address, and creates a junk entry for it.
 
 ## Network settings
 
