@@ -61,7 +61,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, port forwards, backups and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, Wi-Fi, port forwards, backups and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -100,6 +100,15 @@ Usage:
   drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
   drctl network boot   [NETWORK] --off [--no-tftp]
   drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
+  drctl network create NAME --vlan N --subnet ROUTER-IP/PREFIX [--dhcp-range START-STOP] [--dns IP,IP]
+  drctl network delete NAME
+
+  drctl wifi list     [--format table|csv|json]
+  drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
+  drctl wifi password NAME [--password-file FILE | --password-stdin]
+  drctl wifi enable   NAME
+  drctl wifi disable  NAME
+  drctl wifi delete   NAME
 
   drctl backup list      [--format table|csv|json]
   drctl backup download  [FILE] [--auto NAME | --latest] [--history DAYS] [--force]
@@ -162,11 +171,14 @@ func run(ctx context.Context, args []string, env *Env) error {
 		return statusCmd(ctx, &command{env: env, name: "status", args: args[1:]})
 	}
 	commands := map[string]map[string]func(context.Context, *command) error{
-		"dns":     {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},
-		"dhcp":    {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
-		"host":    {"list": hostList, "add": hostAdd, "delete": hostDelete},
-		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP},
-		"leases":  {"list": leasesList, "reserve": leasesReserve},
+		"dns":  {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},
+		"dhcp": {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
+		"host": {"list": hostList, "add": hostAdd, "delete": hostDelete},
+		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP,
+			"create": networkCreate, "delete": networkDelete},
+		"wifi": {"list": wifiList, "create": wifiCreate, "delete": wifiDelete, "enable": wifiEnable,
+			"disable": wifiDisable, "password": wifiPassword},
+		"leases": {"list": leasesList, "reserve": leasesReserve},
 		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
 			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},
 		"ssh": {"show": sshShow, "router": sshRouter, "devices": sshDevices},

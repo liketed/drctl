@@ -24,6 +24,7 @@ from CSV files:
 - **Backups and restores** of all the router's network settings, and the automatic
   backup schedule.
 - **SSH**: switching SSH to the router, or to access points, on and off.
+- **Networks and Wi-Fi networks**: e.g. a Wi-Fi network for children with its own DNS.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -131,6 +132,15 @@ drctl network show   [NETWORK] [--format table|csv|json]
 drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
 drctl network boot   [NETWORK] --off [--no-tftp]
 drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
+drctl network create NAME --vlan N --subnet ROUTER-IP/PREFIX [--dhcp-range START-STOP] [--dns IP,IP]
+drctl network delete NAME
+
+drctl wifi list     [--format table|csv|json]
+drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
+drctl wifi password NAME [--password-file FILE | --password-stdin]
+drctl wifi enable   NAME
+drctl wifi disable  NAME
+drctl wifi delete   NAME
 
 drctl portforward list    [--format table|csv|json]
 drctl portforward add     NAME PORT IP[:PORT] [--proto tcp|udp|both] [--from CIDR] [--disabled] [--log]
@@ -571,6 +581,42 @@ drctl network show
 #   Network boot     off
 #   TFTP server      (not set)
 ```
+
+### New networks and Wi-Fi networks
+
+A network is a VLAN with its own subnet and DHCP, so it can hand out its own DNS servers.
+A Wi-Fi network's devices join one network. For example, a Wi-Fi network for children
+using AdGuard DNS Family:
+
+```bash
+drctl network create Kids --vlan 30 --subnet 192.168.30.1/24 --dns 94.140.14.15,94.140.15.16
+# created network Kids: VLAN 30, 192.168.30.0/24 (router 192.168.30.1), DHCP 192.168.30.6 - 192.168.30.254, DNS 94.140.14.15, 94.140.15.16
+
+drctl wifi create home-kids --network Kids          # asks for the password twice, without showing it
+# created Wi-Fi network "home-kids" on network Kids (2.4/5 GHz, WPA2/WPA3)
+# Wi-Fi devices on every Wi-Fi network disconnect for about 15-30 seconds while the access points apply this
+
+drctl wifi list
+# NAME       NETWORK  BANDS        SECURITY   HIDDEN  STATE    CLIENTS
+# home       Default  2.4/5/6 GHz  WPA2/WPA3          enabled  22
+# home-kids  Kids     2.4/5 GHz    WPA2/WPA3          enabled  0
+```
+
+- `--subnet` is the router's address on the new network with its prefix. The subnet must
+  be private and overlap no other network; the DHCP range defaults to `.6` to the last
+  address but one. drctl refuses duplicate names and public subnets, which the router
+  accepts.
+- **Passwords are never command-line arguments** (they'd end up in shell history and
+  process lists): drctl asks for them, or reads them with `--password-file FILE` or
+  `--password-stdin`. drctl refuses duplicate Wi-Fi names (the router accepts even the
+  name of an existing Wi-Fi network) and passwords devices couldn't use.
+- **Creating, changing or deleting a Wi-Fi network briefly disconnects all Wi-Fi devices**
+  while the access points apply it. Wired devices aren't affected.
+- drctl refuses to disable or delete the Wi-Fi network this machine is connected
+  through, to delete the network this machine is on, the router's own network, or a
+  network a Wi-Fi network still uses.
+- **DNS from DHCP is a default, not a lock:** a device can still use other DNS (set by
+  hand, "Private DNS" on Android, DNS over HTTPS in browsers, iCloud Private Relay).
 
 ### DHCP options: DNS servers, lease time, NTP, domain
 

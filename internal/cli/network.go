@@ -96,9 +96,13 @@ func networkList(ctx context.Context, c *command) error {
 		if n.DHCPEnabled {
 			pool = n.DHCPStart + " - " + n.DHCPStop
 		}
-		rows = append(rows, []string{n.Name, subnet(n), onOff(n.DHCPEnabled), pool, n.DomainName, onOff(n.BootEnabled)})
+		vlan := ""
+		if n.VLANEnabled && n.VLAN > 0 {
+			vlan = fmt.Sprint(n.VLAN)
+		}
+		rows = append(rows, []string{n.Name, subnet(n), onOff(n.DHCPEnabled), pool, n.DomainName, onOff(n.BootEnabled), vlan, dnsText(n)})
 	}
-	return output(c.env.Stdout, *format, []string{"name", "subnet", "dhcp", "pool", "domain", "network boot"}, rows)
+	return output(c.env.Stdout, *format, []string{"name", "subnet", "dhcp", "pool", "domain", "network boot", "vlan", "dns"}, rows)
 }
 
 func networkShow(ctx context.Context, c *command) error {
