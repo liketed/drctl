@@ -460,7 +460,7 @@ func TestNetworkListAndShow(t *testing.T) {
 		t.Fatalf("network list (WAN connections must be left out):\n%s", list)
 	}
 	drctl(t, r, "network", "show").ok(t).says(t, "Network Default (192.168.1.0/24)", "Network boot     off", "TFTP server      (not set)")
-	drctl(t, r, "network", "show", "default", "--format", "csv").ok(t).says(t, "name,subnet,dhcp,dhcp_start,dhcp_stop,domain,boot_enabled,boot_server,boot_file,tftp_server\nDefault,192.168.1.0/24,on,")
+	drctl(t, r, "network", "show", "default", "--format", "csv").ok(t).says(t, "name,subnet,dhcp,dhcp_start,dhcp_stop,domain,boot_enabled,boot_server,boot_file,tftp_server,dns_servers,lease_seconds,ntp_servers\nDefault,192.168.1.0/24,on,")
 	drctl(t, r, "network", "show", "IoT").fails(t, 1, `no network named "IoT" (networks: Default 192.168.1.1/24)`)
 }
 

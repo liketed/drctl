@@ -99,6 +99,7 @@ Usage:
   drctl network show   [NETWORK] [--format table|csv|json]
   drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
   drctl network boot   [NETWORK] --off [--no-tftp]
+  drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
 
   drctl backup list      [--format table|csv|json]
   drctl backup download  [FILE] [--auto NAME | --latest] [--history DAYS] [--force]
@@ -164,7 +165,7 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"dns":     {"list": dnsList, "add": dnsAdd, "delete": dnsDelete, "import": dnsImport},
 		"dhcp":    {"list": dhcpList, "add": dhcpAdd, "delete": dhcpDelete, "import": dhcpImport},
 		"host":    {"list": hostList, "add": hostAdd, "delete": hostDelete},
-		"network": {"list": networkList, "show": networkShow, "boot": networkBoot},
+		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP},
 		"leases":  {"list": leasesList, "reserve": leasesReserve},
 		"clients": {"list": clientsList, "show": clientsShow, "name": clientsName, "note": clientsNote,
 			"block": clientsBlock, "unblock": clientsUnblock, "forget": clientsForget},

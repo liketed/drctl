@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/liketed/dreamrouter-go/check"
 	"github.com/liketed/dreamrouter-go/unifi"
@@ -124,9 +126,10 @@ func networkShow(ctx context.Context, c *command) error {
 	}
 	if *format != "table" {
 		header := []string{"name", "subnet", "dhcp", "dhcp_start", "dhcp_stop", "domain",
-			"boot_enabled", "boot_server", "boot_file", "tftp_server"}
+			"boot_enabled", "boot_server", "boot_file", "tftp_server", "dns_servers", "lease_seconds", "ntp_servers"}
 		row := []string{n.Name, subnet(n), onOff(n.DHCPEnabled), n.DHCPStart, n.DHCPStop, n.DomainName,
-			onOff(n.BootEnabled), n.BootServer, n.BootFilename, n.TFTPServer}
+			onOff(n.BootEnabled), n.BootServer, n.BootFilename, n.TFTPServer,
+			strings.Join(n.DNSServers(), " "), fmt.Sprint(int(n.Lease().Seconds())), strings.Join(n.NTPServers(), " ")}
 		return output(c.env.Stdout, *format, header, [][]string{row})
 	}
 	dhcp := "off"
@@ -143,7 +146,194 @@ func networkShow(ctx context.Context, c *command) error {
 	fmt.Fprintf(w, "  %-16s %s\n", "Domain", orNotSet(n.DomainName))
 	fmt.Fprintf(w, "  %-16s %s\n", "Network boot", boot)
 	fmt.Fprintf(w, "  %-16s %s\n", "TFTP server", orNotSet(n.TFTPServer))
+	fmt.Fprintf(w, "  %-16s %s\n", "DNS servers", dnsText(n))
+	fmt.Fprintf(w, "  %-16s %s\n", "Lease time", leaseText(n))
+	fmt.Fprintf(w, "  %-16s %s\n", "NTP servers", ntpText(n))
 	return nil
+}
+
+// dnsText describes the DNS servers a network hands out.
+func dnsText(n unifi.Network) string {
+	if s := n.DNSServers(); s != nil {
+		return strings.Join(s, ", ")
+	}
+	return "the router (default)"
+}
+
+func ntpText(n unifi.Network) string {
+	if s := n.NTPServers(); s != nil {
+		return strings.Join(s, ", ")
+	}
+	return "none"
+}
+
+func leaseText(n unifi.Network) string {
+	t := shortDuration(n.Lease())
+	if n.LeaseTime <= 0 || n.LeaseTime == unifi.DefaultLeaseTime {
+		t += " (default)"
+	}
+	return t
+}
+
+// shortDuration writes a duration in its largest whole unit, e.g. "7d",
+// "12h", "90m" or "150s".
+func shortDuration(d time.Duration) string {
+	switch {
+	case d%(24*time.Hour) == 0:
+		return fmt.Sprintf("%dd", d/(24*time.Hour))
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%dh", d/time.Hour)
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	}
+	return fmt.Sprintf("%ds", d/time.Second)
+}
+
+// parseLease reads a lease time: a Go duration ("12h", "90m"), days ("7d",
+// "1d12h") or plain seconds ("86400").
+func parseLease(s string) (int, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+	var days int64
+	rest := s
+	if i := strings.Index(s, "d"); i > 0 {
+		d, err := strconv.ParseInt(s[:i], 10, 64)
+		if err != nil {
+			return 0, usagef("lease time %q must be e.g. 12h, 7d or 86400 (seconds)", s)
+		}
+		days, rest = d, s[i+1:]
+	}
+	var d time.Duration
+	if rest != "" {
+		var err error
+		if d, err = time.ParseDuration(rest); err != nil {
+			return 0, usagef("lease time %q must be e.g. 12h, 7d or 86400 (seconds)", s)
+		}
+	}
+	return int((time.Duration(days)*24*time.Hour + d) / time.Second), nil
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// networkDHCP sets the DHCP options a network hands out: DNS servers, lease
+// time, NTP servers and domain name. Only what changes is written.
+func networkDHCP(ctx context.Context, c *command) error {
+	usage := "[NETWORK] [--dns IP[,IP...] | --dns auto] [--lease DURATION | --lease default] [--ntp IP[,IP] | --ntp off] [--domain NAME]"
+	fs := c.flags(usage)
+	dns := fs.String("dns", "", `DNS servers to hand out (up to 4), or "auto" for the router itself`)
+	lease := fs.String("lease", "", `lease time, e.g. 12h, 7d or 86400 (seconds), or "default" (24h)`)
+	ntp := fs.String("ntp", "", `NTP servers to hand out (up to 2), or "off"`)
+	domain := fs.String("domain", "", "domain name handed out as the search domain, e.g. home.internal")
+	args, err := c.parse(0, 1)
+	if err != nil {
+		return err
+	}
+	if *dns == "" && *lease == "" && *ntp == "" && *domain == "" {
+		return usagef("nothing to change; usage: drctl network dhcp %s", usage)
+	}
+	fields := map[string]any{}
+	var dnsServers, ntpServers []string
+	if *dns != "" && *dns != "auto" {
+		dnsServers = splitList(*dns)
+		if err := check.DHCPDNS(dnsServers); err != nil {
+			return err
+		}
+	}
+	if *ntp != "" && *ntp != "off" {
+		ntpServers = splitList(*ntp)
+		if err := check.NTPServers(ntpServers); err != nil {
+			return err
+		}
+	}
+	leaseSeconds := 0
+	if *lease != "" {
+		if *lease == "default" {
+			leaseSeconds = unifi.DefaultLeaseTime
+		} else if leaseSeconds, err = parseLease(*lease); err != nil {
+			return err
+		}
+		if err := check.LeaseTime(leaseSeconds); err != nil {
+			return err
+		}
+	}
+	if *domain != "" {
+		if err := check.DomainName(*domain); err != nil {
+			return err
+		}
+	}
+
+	api, err := c.connect()
+	if err != nil {
+		return err
+	}
+	lans, err := lanNetworks(ctx, api)
+	if err != nil {
+		return err
+	}
+	name := ""
+	if len(args) == 1 {
+		name = args[0]
+	}
+	n, err := pickNetwork(lans, name)
+	if err != nil {
+		return err
+	}
+	var changes []string
+	if *dns != "" && strings.Join(dnsServers, ",") != strings.Join(n.DNSServers(), ",") {
+		for k, v := range unifi.DNSFields(dnsServers) {
+			fields[k] = v
+		}
+		next := unifi.Network{DNSEnabled: len(dnsServers) > 0}
+		next.DNS1, next.DNS2, next.DNS3, next.DNS4 = at(dnsServers, 0), at(dnsServers, 1), at(dnsServers, 2), at(dnsServers, 3)
+		changes = append(changes, fmt.Sprintf("DNS servers from %s to %s", dnsText(n), dnsText(next)))
+	}
+	if *lease != "" && leaseSeconds != int(n.Lease().Seconds()) {
+		fields["dhcpd_leasetime"] = leaseSeconds
+		changes = append(changes, fmt.Sprintf("lease time from %s to %s", leaseText(n), leaseText(unifi.Network{LeaseTime: leaseSeconds})))
+	}
+	if *ntp != "" && strings.Join(ntpServers, ",") != strings.Join(n.NTPServers(), ",") {
+		for k, v := range unifi.NTPFields(ntpServers) {
+			fields[k] = v
+		}
+		next := unifi.Network{NTPEnabled: len(ntpServers) > 0, NTP1: at(ntpServers, 0), NTP2: at(ntpServers, 1)}
+		changes = append(changes, fmt.Sprintf("NTP servers from %s to %s", ntpText(n), ntpText(next)))
+	}
+	if *domain != "" && *domain != n.DomainName {
+		fields["domain_name"] = *domain
+		changes = append(changes, fmt.Sprintf("domain from %s to %s", orNotSet(n.DomainName), *domain))
+	}
+	if len(changes) == 0 {
+		c.out("nothing to change on network %s", n.Name)
+		return nil
+	}
+	if !c.dryRun {
+		if _, err := api.UpdateNetwork(ctx, n.ID, fields); err != nil {
+			return err
+		}
+	}
+	for _, ch := range changes {
+		c.out("%s %s on network %s", c.verb("changed", "change"), ch, n.Name)
+	}
+	if !c.dryRun {
+		c.out("devices pick up the change when they renew their lease (within %s)", shortDuration(time.Duration(max(leaseSeconds, int(n.Lease().Seconds())))*time.Second))
+	}
+	return nil
+}
+
+func at(list []string, i int) string {
+	if i < len(list) {
+		return list[i]
+	}
+	return ""
 }
 
 // networkBoot turns network boot (PXE) on or off for a network, and sets or

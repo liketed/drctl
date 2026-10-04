@@ -130,6 +130,7 @@ drctl network list   [--format table|csv|json]
 drctl network show   [NETWORK] [--format table|csv|json]
 drctl network boot   [NETWORK] --server IP --file NAME [--tftp-server HOST | --no-tftp]
 drctl network boot   [NETWORK] --off [--no-tftp]
+drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
 
 drctl portforward list    [--format table|csv|json]
 drctl portforward add     NAME PORT IP[:PORT] [--proto tcp|udp|both] [--from CIDR] [--disabled] [--log]
@@ -570,6 +571,35 @@ drctl network show
 #   Network boot     off
 #   TFTP server      (not set)
 ```
+
+### DHCP options: DNS servers, lease time, NTP, domain
+
+`drctl network dhcp` sets what DHCP hands out on a network. `drctl network show` shows it:
+
+```bash
+drctl network show
+#   DNS servers      the router (default)
+#   Lease time       1d (default)
+#   NTP servers      none
+
+drctl network dhcp --dns 192.168.1.1,1.1.1.1 --lease 12h
+# changed DNS servers from the router (default) to 192.168.1.1, 1.1.1.1 on network Default
+# changed lease time from 1d (default) to 12h on network Default
+# devices pick up the change when they renew their lease (within 1d)
+
+drctl network dhcp --ntp 192.168.1.1 --domain home.internal
+drctl network dhcp --dns auto --lease default --ntp off     # back to the defaults
+```
+
+- `--dns`: up to 4 IPv4 addresses, or `auto` for the router itself (the default).
+- `--lease`: e.g. `30m`, `12h`, `7d`, `1d12h` or seconds, from 2 minutes to a year, or
+  `default` (24 hours).
+- `--ntp`: up to 2 IPv4 addresses, or `off`. `--domain`: the search domain handed out.
+- Only what changes is written, and `--dry-run` shows it first. The router itself accepts
+  DNS "servers" that DHCP can't hand out (host names, several in one field, IPv6) and
+  lease times down to 0 seconds; drctl refuses them.
+- Devices pick up changes when they renew their lease, so a shorter lease time takes
+  effect only after the current leases expire.
 
 ### Network boot (PXE)
 
