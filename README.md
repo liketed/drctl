@@ -25,6 +25,8 @@ from CSV files:
   backup schedule.
 - **SSH**: switching SSH to the router, or to access points, on and off.
 - **Networks and Wi-Fi networks**: e.g. a Wi-Fi network for children with its own DNS.
+- **Internet connections**: PPPoE login, VLAN, DHCP or static, DNS, and which port each
+  connection uses, with automatic rollback if a connection doesn't come back.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -134,6 +136,13 @@ drctl network boot   [NETWORK] --off [--no-tftp]
 drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
 drctl network create NAME --vlan N --subnet ROUTER-IP/PREFIX [--dhcp-range START-STOP] [--dns IP,IP]
 drctl network delete NAME
+
+drctl wan list      [--format table|csv|json]
+drctl wan show      NAME
+drctl wan set       NAME [--pppoe --username U [--password-file F | --password-stdin] | --dhcp | --static --ip ADDR/PREFIX --gateway IP]
+                         [--vlan N | --no-vlan] [--dns IP[,IP] | --dns auto] [--yes]
+drctl wan port      NAME PORT [--force] [--yes]
+drctl port list     [--format table|csv|json]
 
 drctl wifi list     [--format table|csv|json]
 drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
@@ -515,6 +524,43 @@ drctl portforward delete web
   **enabled** rules may forward the same port and protocol. A disabled duplicate is
   allowed, but `enable` refuses while the other one is enabled.
 - Rules are named, so `delete`, `enable` and `disable` take the name (case-insensitive).
+
+## Internet connections (WAN)
+
+```bash
+drctl wan list
+# NAME        PORT    TYPE   LOGIN                 VLAN  STATE  IP             ROLE
+# Internet 1  Port 4  PPPOE  vodafone@vodafone.ie  10    up     64.43.191.9    primary
+# Internet 2  Port 3  PPPOE  eir@eir.ie            10    up     51.171.80.126  failover
+
+drctl port list
+# #  PORT    INTERFACE  MEDIA  LINK  SPEED     ROLE
+# 3  Port 3  eth2       2.5GE  up    1 Gbps    Internet 2
+# 4  Port 4  eth3       2.5GE  up    2.5 Gbps  Internet 1
+# 5  SFP+ 1  eth4       SFP+   down            LAN
+
+# A second line as failover: its login, then the port it's plugged into.
+drctl wan set "Internet 2" --pppoe --username eir@eir.ie --vlan 10       # asks for the password
+drctl wan port "Internet 2" "Port 3"
+# moved Internet 2 from SFP+ 1 to Port 3; SFP+ 1 is now a LAN port
+# Internet 2 is up on Port 3: 86.40.227.132
+```
+
+- `wan set` changes the type (`--pppoe`, `--dhcp`, `--static --ip … --gateway …`), the PPPoE
+  login, the VLAN the provider uses (`--vlan 10`, `--no-vlan`) and the DNS servers the router
+  itself uses (`--dns 1.1.1.1,9.9.9.9`, `--dns auto`). Passwords come from a hidden prompt,
+  `--password-file` or `--password-stdin`, and are never shown (`wan show` says "set").
+- `wan port` moves a connection to another port (by name, number or interface); the port it
+  leaves becomes a LAN port. The web UI's port numbers start at 1, the interfaces at eth0:
+  Port 3 is eth2.
+- **Changing a working connection makes it reconnect.** drctl gives the router 20 seconds,
+  then watches for up to 2 minutes; **if the connection doesn't come back, it puts the
+  previous settings (or ports) back** and says so.
+- **The primary connection (Internet 1) needs confirmation**: drctl asks you to type its
+  name (`--yes` skips this). drctl refuses to make a port with LAN devices on it an
+  internet port (`--force` to insist), and never the port this machine is connected to.
+- `drctl status` shows every connection; the router checks WAN settings itself too (PPPoE
+  credentials, VLAN 1–4094, a gateway for static, DNS servers).
 
 ## SSH
 

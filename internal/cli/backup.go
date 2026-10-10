@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -388,7 +387,7 @@ func backupRestore(ctx context.Context, c *command) error {
 	if !*yes {
 		fmt.Fprintf(c.env.Stdout, "This replaces ALL of %s's network settings (networks, Wi-Fi, DNS, reservations, port forwards, ...)\n"+
 			"with the backup's. The Network application restarts; routing carries on.\nType the router's name (%s) to restore: ", st.Name, st.Name)
-		line, _ := bufio.NewReader(c.env.stdin()).ReadString('\n')
+		line, _ := c.env.readLine()
 		if strings.TrimSpace(line) != st.Name {
 			return fmt.Errorf("not restored: the name didn't match")
 		}

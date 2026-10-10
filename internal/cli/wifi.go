@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"net/netip"
@@ -228,6 +227,12 @@ func wifiList(ctx context.Context, c *command) error {
 // from a hidden prompt (asked twice). It is never taken as an argument,
 // which would leave it in shell history and process lists.
 func (c *command) readWiFiPassword(file string, fromStdin bool) (string, error) {
+	return c.readNewSecret("Wi-Fi password", file, fromStdin)
+}
+
+// readNewSecret reads a password from a file, from stdin, or from a hidden
+// prompt (asked twice). It is never taken as an argument.
+func (c *command) readNewSecret(what, file string, fromStdin bool) (string, error) {
 	switch {
 	case file != "":
 		b, err := os.ReadFile(file)
@@ -236,13 +241,13 @@ func (c *command) readWiFiPassword(file string, fromStdin bool) (string, error) 
 		}
 		return strings.TrimRight(string(b), "\r\n"), nil
 	case fromStdin:
-		line, err := bufio.NewReader(c.env.stdin()).ReadString('\n')
-		if err != nil && line == "" {
+		line, err := c.env.readLine()
+		if err != nil {
 			return "", fmt.Errorf("no password on standard input")
 		}
-		return strings.TrimRight(line, "\r\n"), nil
+		return line, nil
 	case c.env.ReadPassword != nil:
-		pw, err := c.env.ReadPassword("New Wi-Fi password: ")
+		pw, err := c.env.ReadPassword("New " + what + ": ")
 		if err != nil {
 			return "", err
 		}

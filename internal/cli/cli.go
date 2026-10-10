@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -31,6 +32,21 @@ type Env struct {
 	Insecure bool
 	// newClient is replaced in tests to shorten login retry waits.
 	newClient func(unifi.Config) (*unifi.Client, error)
+	// lines reads stdin line by line, shared so a password and a
+	// confirmation can both come from it.
+	lines *bufio.Reader
+}
+
+// readLine reads one line from stdin (without the line ending).
+func (e *Env) readLine() (string, error) {
+	if e.lines == nil {
+		e.lines = bufio.NewReader(e.stdin())
+	}
+	line, err := e.lines.ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }
 
 // SystemEnv is the environment of a real drctl process.
@@ -61,7 +77,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, Wi-Fi, port forwards, backups and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, Wi-Fi, internet connections, port forwards, backups and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -102,6 +118,13 @@ Usage:
   drctl network dhcp   [NETWORK] [--dns IP,IP | --dns auto] [--lease 12h | --lease default] [--ntp IP | --ntp off] [--domain NAME]
   drctl network create NAME --vlan N --subnet ROUTER-IP/PREFIX [--dhcp-range START-STOP] [--dns IP,IP]
   drctl network delete NAME
+
+  drctl wan list      [--format table|csv|json]
+  drctl wan show      NAME
+  drctl wan set       NAME [--pppoe --username U [--password-file F | --password-stdin] | --dhcp | --static --ip ADDR/PREFIX --gateway IP]
+                           [--vlan N | --no-vlan] [--dns IP[,IP] | --dns auto] [--yes]
+  drctl wan port      NAME PORT [--force] [--yes]
+  drctl port list     [--format table|csv|json]
 
   drctl wifi list     [--format table|csv|json]
   drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
@@ -176,6 +199,8 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"host": {"list": hostList, "add": hostAdd, "delete": hostDelete},
 		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP,
 			"create": networkCreate, "delete": networkDelete},
+		"wan":  {"list": wanList, "show": wanShow, "set": wanSet, "port": wanPort},
+		"port": {"list": portList},
 		"wifi": {"list": wifiList, "create": wifiCreate, "delete": wifiDelete, "enable": wifiEnable,
 			"disable": wifiDisable, "password": wifiPassword},
 		"leases": {"list": leasesList, "reserve": leasesReserve},

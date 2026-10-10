@@ -80,6 +80,17 @@ func statusCmd(ctx context.Context, c *command) error {
 		add("", strings.Join(link, ", "))
 	}
 
+	for _, l := range s.WANs {
+		if l.NetworkGroup == "WAN" {
+			continue
+		}
+		state := "down"
+		if l.Up {
+			state = "up, " + l.IP
+		}
+		add("internet "+strings.TrimPrefix(l.NetworkGroup, "WAN"), fmt.Sprintf("%s (%s)", state, l.Interface))
+	}
+
 	sy := s.System
 	sys := []string{fmt.Sprintf("CPU %g%%", sy.CPUPercent)}
 	mem := fmt.Sprintf("memory %g%%", sy.MemoryPercent)
@@ -239,5 +250,14 @@ func statusJSON(s unifi.Status) map[string]any {
 		"clients":       map[string]any{"total": s.Clients, "wired": s.Wired, "wifi": s.WiFi, "guests": s.Guests},
 		"access_points": s.AccessPoints, "switches": s.Switches,
 		"devices": devices, "update_available": s.UpdateAvailable, "speed_test": speed, "health": s.Subsystems,
+		"wans": wansJSON(s.WANs),
 	}
+}
+
+func wansJSON(links []unifi.WANLink) []map[string]any {
+	out := []map[string]any{}
+	for _, l := range links {
+		out = append(out, map[string]any{"network_group": l.NetworkGroup, "interface": l.Interface, "up": l.Up, "ip": l.IP})
+	}
+	return out
 }
