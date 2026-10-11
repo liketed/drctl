@@ -124,3 +124,33 @@ func TestWANPortSafeguards(t *testing.T) {
 	}
 	drctlIn(t, r, "no\n", "wan", "port", "Internet 1", "Port 2").fails(t, 1, "the name didn't match")
 }
+
+func TestWANPrimary(t *testing.T) {
+	r := wanRouter(t)
+	drctl(t, r, "wan", "primary", "Internet 2").fails(t, 1, "Internet 2 is down; making it primary")
+	r.SetPortLink("eth4", true) // the second line is connected (SFP+ here)
+	drctl(t, r, "wan", "primary", "Internet 2", "--dry-run").ok(t).
+		says(t, "would make Internet 2 the primary connection (traffic out via 198.51.100.9); Internet 1 would become the failover")
+	drctlIn(t, r, "nope\n", "wan", "primary", "Internet 2").fails(t, 1, "nothing changed: the name didn't match")
+	if r.Network("Internet 2")["wan_failover_priority"] != 2.0 {
+		t.Fatal("switched without confirmation")
+	}
+	drctlIn(t, r, "Internet 2\n", "wan", "primary", "Internet 2").ok(t).
+		says(t, "Internet 2 is now the primary connection (traffic out via 198.51.100.9", "Internet 1 is the failover")
+	drctl(t, r, "wan", "list").ok(t).says(t, "Internet 1", "failover", "Internet 2", "primary")
+	if n := r.Network("Internet 1"); n["wan_failover_priority"] != 2.0 || n["wan_load_balance_type"] != "failover-only" {
+		t.Fatalf("Internet 1: %v", n)
+	}
+	drctl(t, r, "wan", "primary", "Internet 2").ok(t).says(t, "already the primary connection")
+	// Changing the (new) primary now needs confirmation; Internet 1 doesn't.
+	drctlIn(t, r, "nope\n", "wan", "set", "Internet 2", "--vlan", "20").fails(t, 1, "the name didn't match")
+	drctl(t, r, "wan", "primary", "Internet 1", "--yes").ok(t).says(t, "Internet 1 is now the primary connection")
+
+	// A primary that doesn't carry traffic is switched back: Internet 2 is
+	// up, but its provider routes nothing.
+	r.BlockTraffic("WAN2")
+	drctl(t, r, "wan", "primary", "Internet 2", "--yes").fails(t, 1, "Internet 2 didn't carry traffic within 300ms; switched back to Internet 1")
+	if n := r.Network("Internet 1"); n["wan_failover_priority"] != 1.0 || n["wan_load_balance_type"] == "failover-only" {
+		t.Fatalf("not switched back: %v", n)
+	}
+}

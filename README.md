@@ -142,6 +142,7 @@ drctl wan show      NAME
 drctl wan set       NAME [--pppoe --username U [--password-file F | --password-stdin] | --dhcp | --static --ip ADDR/PREFIX --gateway IP]
                          [--vlan N | --no-vlan] [--dns IP[,IP] | --dns auto] [--yes]
 drctl wan port      NAME PORT [--force] [--yes]
+drctl wan primary   NAME [--yes]
 drctl port list     [--format table|csv|json]
 
 drctl wifi list     [--format table|csv|json]
@@ -561,6 +562,21 @@ drctl wan port "Internet 2" "Port 3"
   internet port (`--force` to insist), and never the port this machine is connected to.
 - `drctl status` shows every connection; the router checks WAN settings itself too (PPPoE
   credentials, VLAN 1–4094, a gateway for static, DNS servers).
+
+**Switching the primary connection** (failover by hand, e.g. before work on the main line):
+
+```bash
+drctl wan primary "Internet 2"       # asks you to type the name; --yes skips that
+# Internet 2 is now the primary connection (traffic out via 51.171.80.126, after 20s); Internet 1 is the failover
+drctl wan primary "Internet 1"       # and back
+```
+
+New traffic goes out through the new primary and the previous one becomes its failover;
+both lines stay connected. Open connections (calls, SSH, downloads) break and reconnect,
+and your public IP changes. drctl refuses a connection that is down, and checks that
+traffic really moves (the router's active uplink, and the internet being reachable); if it
+doesn't within 2 minutes, it switches back. The router allows no two connections the same
+priority, so drctl does the swap in three steps.
 
 ## SSH
 

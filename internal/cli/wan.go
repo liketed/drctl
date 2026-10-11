@@ -86,7 +86,7 @@ func findWAN(wans []unifi.WAN, name string) (unifi.WAN, error) {
 
 func roleText(w unifi.WAN) string {
 	switch {
-	case w.FailoverPriority == 1 || (w.FailoverPriority == 0 && w.NetworkGroup == "WAN"):
+	case w.IsPrimary() || (w.FailoverPriority == 0 && w.NetworkGroup == "WAN"):
 		return "primary"
 	case w.LoadBalanceType == "failover-only":
 		return "failover"
@@ -337,7 +337,7 @@ func wanSet(ctx context.Context, c *command) error {
 		}
 		return nil
 	}
-	if link.Up && w.NetworkGroup == "WAN" && !*yes {
+	if link.Up && w.IsPrimary() && !*yes {
 		if err := c.confirm(fmt.Sprintf("%s is your primary internet connection and is up; it will reconnect, and if it doesn't come back\nwithin %s drctl puts the previous settings back.", w.Name, wanWait.timeout), w.Name); err != nil {
 			return err
 		}
@@ -507,8 +507,14 @@ func wanPort(ctx context.Context, c *command) error {
 		c.out("would move %s from %s to %s; %s would become a LAN port", w.Name, fromText, target.Name, fromText)
 		return nil
 	}
-	primary := s.link("WAN")
-	if w.NetworkGroup == "WAN" && primary.Up && !*yes {
+	primaryGroup := "WAN"
+	for _, o := range s.wans {
+		if o.IsPrimary() {
+			primaryGroup = o.NetworkGroup
+		}
+	}
+	primary := s.link(primaryGroup)
+	if w.IsPrimary() && primary.Up && !*yes {
 		if err := c.confirm(fmt.Sprintf("%s is your primary internet connection and is up on %s; moving it to %s takes it down\nuntil the line is connected there. If it doesn't come up within %s, drctl moves it back.", w.Name, from.Name, target.Name, wanWait.timeout), w.Name); err != nil {
 			return err
 		}
@@ -519,14 +525,14 @@ func wanPort(ctx context.Context, c *command) error {
 	c.out("moved %s from %s to %s; %s is now a LAN port", w.Name, fromText, target.Name, fromText)
 	// The primary connection must stay (or come back) up, or everything goes back.
 	if primary.Up {
-		if _, up := waitUp(ctx, api, "WAN", wanWait.timeout); !up {
+		if _, up := waitUp(ctx, api, primaryGroup, wanWait.timeout); !up {
 			if err := api.SetPortRoles(ctx, oldRoles); err != nil {
-				return fmt.Errorf("%s didn't come back within %s, and moving the ports back failed: %w", s.groupName("WAN"), wanWait.timeout, err)
+				return fmt.Errorf("%s didn't come back within %s, and moving the ports back failed: %w", s.groupName(primaryGroup), wanWait.timeout, err)
 			}
-			return fmt.Errorf("%s didn't come back within %s; moved the ports back", s.groupName("WAN"), wanWait.timeout)
+			return fmt.Errorf("%s didn't come back within %s; moved the ports back", s.groupName(primaryGroup), wanWait.timeout)
 		}
 	}
-	if w.NetworkGroup != "WAN" {
+	if w.NetworkGroup != primaryGroup {
 		if l, up := waitUp(ctx, api, w.NetworkGroup, wanWait.timeout); up {
 			c.out("%s is up on %s: %s", w.Name, target.Name, l.IP)
 		} else {
@@ -568,4 +574,89 @@ func portList(ctx context.Context, c *command) error {
 		rows = append(rows, []string{fmt.Sprint(p.Index), p.Name, p.Interface, p.Media, link, speed, role})
 	}
 	return output(c.env.Stdout, *format, []string{"#", "port", "interface", "media", "link", "speed", "role"}, rows)
+}
+
+// waitActive lets the router apply a change, then waits until traffic goes
+// out through the connection for group and the internet is reachable.
+func waitActive(ctx context.Context, api *unifi.Client, group string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(wanWait.settle):
+	}
+	for {
+		if active, err := api.ActiveWAN(ctx); err == nil && active == group {
+			if st, err := api.GetStatus(ctx); err == nil && st.Internet.Status == "ok" {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(wanWait.interval):
+		}
+	}
+}
+
+func wanPrimary(ctx context.Context, c *command) error {
+	fs := c.flags("NAME [--yes]")
+	yes := fs.Bool("yes", false, "don't ask before switching")
+	args, err := c.parse(1, 1)
+	if err != nil {
+		return err
+	}
+	api, err := c.connect()
+	if err != nil {
+		return err
+	}
+	s, err := loadWANState(ctx, api)
+	if err != nil {
+		return err
+	}
+	w, err := findWAN(s.wans, args[0])
+	if err != nil {
+		return err
+	}
+	if w.IsPrimary() {
+		c.out("%s is already the primary connection", w.Name)
+		return nil
+	}
+	var old unifi.WAN
+	for _, o := range s.wans {
+		if o.IsPrimary() {
+			old = o
+		}
+	}
+	l := s.link(w.NetworkGroup)
+	if !l.Up {
+		return fmt.Errorf("%s is down; making it primary would leave the internet to the failover at best", w.Name)
+	}
+	if c.dryRun {
+		c.out("would make %s the primary connection (traffic out via %s); %s would become the failover", w.Name, l.IP, orDefault(old.Name, "the current primary"))
+		return nil
+	}
+	if !*yes {
+		if err := c.confirm(fmt.Sprintf("New traffic will go out through %s (%s); open connections break and reconnect, and your public IP\nchanges. If it doesn't carry traffic within %s, drctl switches back.", w.Name, l.IP, wanWait.timeout), w.Name); err != nil {
+			return err
+		}
+	}
+	start := time.Now()
+	if err := api.SetPrimaryWAN(ctx, w.ID); err != nil {
+		return err
+	}
+	if waitActive(ctx, api, w.NetworkGroup, wanWait.timeout) {
+		c.out("%s is now the primary connection (traffic out via %s, after %s); %s is the failover", w.Name, l.IP, time.Since(start).Round(time.Second), orDefault(old.Name, "the previous primary"))
+		return nil
+	}
+	if old.ID == "" {
+		return fmt.Errorf("%s didn't carry traffic within %s, and there was no previous primary to switch back to", w.Name, wanWait.timeout)
+	}
+	if err := api.SetPrimaryWAN(ctx, old.ID); err != nil {
+		return fmt.Errorf("%s didn't carry traffic within %s, and switching back to %s failed: %w", w.Name, wanWait.timeout, old.Name, err)
+	}
+	return fmt.Errorf("%s didn't carry traffic within %s; switched back to %s", w.Name, wanWait.timeout, old.Name)
 }

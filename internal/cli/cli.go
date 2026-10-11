@@ -124,6 +124,7 @@ Usage:
   drctl wan set       NAME [--pppoe --username U [--password-file F | --password-stdin] | --dhcp | --static --ip ADDR/PREFIX --gateway IP]
                            [--vlan N | --no-vlan] [--dns IP[,IP] | --dns auto] [--yes]
   drctl wan port      NAME PORT [--force] [--yes]
+  drctl wan primary   NAME [--yes]
   drctl port list     [--format table|csv|json]
 
   drctl wifi list     [--format table|csv|json]
@@ -199,7 +200,7 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"host": {"list": hostList, "add": hostAdd, "delete": hostDelete},
 		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP,
 			"create": networkCreate, "delete": networkDelete},
-		"wan":  {"list": wanList, "show": wanShow, "set": wanSet, "port": wanPort},
+		"wan":  {"list": wanList, "show": wanShow, "set": wanSet, "port": wanPort, "primary": wanPrimary},
 		"port": {"list": portList},
 		"wifi": {"list": wifiList, "create": wifiCreate, "delete": wifiDelete, "enable": wifiEnable,
 			"disable": wifiDisable, "password": wifiPassword},
