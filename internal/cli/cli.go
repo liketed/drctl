@@ -77,7 +77,7 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
-const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, Wi-Fi, internet connections, port forwards, backups and network settings.
+const mainUsage = `drctl manages a UniFi Dream Router 7's static DNS records, DHCP reservations, clients, Wi-Fi, internet connections, static routes, port forwards, backups and network settings.
 
 Usage:
   drctl dns  list   [--type T] [--name N] [--static] [--format table|csv|json]
@@ -126,6 +126,12 @@ Usage:
   drctl wan port      NAME PORT [--force] [--yes]
   drctl wan primary   NAME [--yes]
   drctl port list     [--format table|csv|json]
+
+  drctl route list    [--format table|csv|json]
+  drctl route add     NETWORK NEXT-HOP [--name NAME] [--distance N] [--disabled]
+  drctl route delete  NETWORK|NAME
+  drctl route enable  NETWORK|NAME
+  drctl route disable NETWORK|NAME
 
   drctl wifi list     [--format table|csv|json]
   drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
@@ -200,8 +206,9 @@ func run(ctx context.Context, args []string, env *Env) error {
 		"host": {"list": hostList, "add": hostAdd, "delete": hostDelete},
 		"network": {"list": networkList, "show": networkShow, "boot": networkBoot, "dhcp": networkDHCP,
 			"create": networkCreate, "delete": networkDelete},
-		"wan":  {"list": wanList, "show": wanShow, "set": wanSet, "port": wanPort, "primary": wanPrimary},
-		"port": {"list": portList},
+		"wan":   {"list": wanList, "show": wanShow, "set": wanSet, "port": wanPort, "primary": wanPrimary},
+		"port":  {"list": portList},
+		"route": {"list": routeList, "add": routeAdd, "delete": routeDelete, "enable": routeEnable, "disable": routeDisable},
 		"wifi": {"list": wifiList, "create": wifiCreate, "delete": wifiDelete, "enable": wifiEnable,
 			"disable": wifiDisable, "password": wifiPassword},
 		"leases": {"list": leasesList, "reserve": leasesReserve},

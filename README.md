@@ -27,6 +27,7 @@ from CSV files:
 - **Networks and Wi-Fi networks**: e.g. a Wi-Fi network for children with its own DNS.
 - **Internet connections**: PPPoE login, VLAN, DHCP or static, DNS, and which port each
   connection uses, with automatic rollback if a connection doesn't come back.
+- **Static routes**: e.g. to a network behind another router on your LAN.
 
 Changes go through the UniFi Network application's own API, so they are exactly the
 same as changes made in the web UI (**Settings → Routing → DNS**, and a client's fixed
@@ -144,6 +145,12 @@ drctl wan set       NAME [--pppoe --username U [--password-file F | --password-s
 drctl wan port      NAME PORT [--force] [--yes]
 drctl wan primary   NAME [--yes]
 drctl port list     [--format table|csv|json]
+
+drctl route list    [--format table|csv|json]
+drctl route add     NETWORK NEXT-HOP [--name NAME] [--distance N] [--disabled]
+drctl route delete  NETWORK|NAME
+drctl route enable  NETWORK|NAME
+drctl route disable NETWORK|NAME
 
 drctl wifi list     [--format table|csv|json]
 drctl wifi create   NAME --network NET [--password-file FILE | --password-stdin] [--bands 2g,5g,6g] [--hidden] [--disabled]
@@ -577,6 +584,33 @@ and your public IP changes. drctl refuses a connection that is down, and checks 
 traffic really moves (the router's active uplink, and the internet being reachable); if it
 doesn't within 2 minutes, it switches back. The router allows no two connections the same
 priority, so drctl does the swap in three steps.
+
+## Static routes
+
+A static route tells the router where a network it isn't connected to is, for example a
+second router on your LAN with its own network behind it:
+
+```bash
+drctl route add 192.168.2.0/24 192.168.1.4 --name cudy
+# added static route 192.168.2.0/24 via 192.168.1.4
+
+drctl route list
+# NETWORK         NEXT HOP     DISTANCE  STATE    NAME
+# 192.168.2.0/24  192.168.1.4  1         enabled  cudy
+
+drctl route disable cudy        # or the network: drctl route disable 192.168.2.0/24
+drctl route delete cudy
+```
+
+- The next hop must be a device on one of your networks (the other router's address on
+  your LAN), not the router itself. The router accepts next hops it can't reach, and
+  itself (which would loop), and duplicate names; drctl refuses them. The router itself
+  refuses routes to its own networks, the same network twice and default routes.
+- `--distance` (1–255, default 1) decides between routes to the same place; `--disabled`
+  creates the route switched off. All commands accept `--dry-run`.
+- The other router must let the traffic in: consumer routers often do NAT and block
+  incoming connections on their internet port. Replies need no route back when that
+  router is on your LAN.
 
 ## SSH
 
